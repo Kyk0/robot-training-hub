@@ -1,0 +1,17 @@
+[Unit]
+Description=Robot Training Hub workshop worker
+After=network-online.target
+[Service]
+Type=simple
+WorkingDirectory=%h/robot-training-hub
+EnvironmentFile=%h/robot-training-hub/data/worker.env
+ExecStart=%h/robot-training-hub/.venv/bin/robot-worker
+Restart=on-failure
+RestartSec=10
+UMask=0077
+KillMode=mixed
+KillSignal=SIGINT
+TimeoutStopSec=90
+SendSIGKILL=no
+[Install]
+WantedBy=default.target

@@ -1,0 +1,878 @@
+import asyncio
+from contextlib import asynccontextmanager
+import io
+import json
+import logging
+import os
+from pathlib import Path
+import secrets
+import smtplib
+import sqlite3
+import time
+from email.message import EmailMessage
+from fastapi import FastAPI, Depends, HTTPException, Request, Response
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from .config import Config, DEFAULT_SERVER, ROOT
+from .db import DB, ACTIVE, digest, now, pack, uid, unpack
+from .models import (
+    Email,
+    NewJob,
+    UserEdit,
+    Settings,
+    NewServer,
+    ServerConfig,
+    Heartbeat,
+    Report,
+)
+from .scheduler import schedule, estimate, public_job
+from .snapshots import create_snapshot, safe_path, verify, zip_tree, sha
+
+log = logging.getLogger("hub")
+
+
+def create_app(cfg=None):
+    cfg = cfg or Config()
+    db = DB(cfg)
+
+    @asynccontextmanager
+    async def lifespan(app):
+        async def loop():
+            while True:
+                try:
+                    await asyncio.to_thread(schedule, db)
+                except Exception:
+                    log.exception("Scheduler tick failed")
+                await asyncio.sleep(2)
+
+        task = asyncio.create_task(loop())
+        yield
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    app = FastAPI(title="Robot Training Hub", lifespan=lifespan)
+    app.state.db = db
+    app.state.cfg = cfg
+
+    @app.middleware("http")
+    async def security(request, call_next):
+        if request.url.path.startswith("/api/") and request.method not in (
+            "GET",
+            "HEAD",
+            "OPTIONS",
+        ):
+            origin = request.headers.get("origin")
+            if origin and origin.rstrip("/") != cfg.public_url.rstrip("/"):
+                return Response("Origin refused", status_code=403)
+            if (
+                not request.url.path.startswith("/api/worker/")
+                and request.headers.get("x-hub-request") != "1"
+            ):
+                return Response("X-Hub-Request required", status_code=403)
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'"
+        )
+        return response
+
+    def user(request: Request):
+        token = request.cookies.get("hub_session", "")
+        with db.connect() as c:
+            row = c.execute(
+                "SELECT u.* FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.hash=? AND s.expires>?",
+                (digest(token), now()),
+            ).fetchone()
+        if not row or not row["verified"] or not row["approved"]:
+            raise HTTPException(401, "Login required")
+        return dict(row)
+
+    def admin(u=Depends(user)):
+        if u["role"] != "admin":
+            raise HTTPException(403, "Administrator required")
+        return u
+
+    def worker(request: Request):
+        token = request.headers.get("authorization", "").removeprefix("Bearer ")
+        with db.connect() as c:
+            row = c.execute(
+                "SELECT * FROM servers WHERE token_hash=?", (digest(token),)
+            ).fetchone()
+        if not row:
+            raise HTTPException(401, "Invalid worker credential")
+        return dict(row)
+
+    def get_job(c, key, u):
+        row = c.execute("SELECT * FROM jobs WHERE id=?", (key,)).fetchone()
+        if not row or (u["role"] != "admin" and row["user_id"] != u["id"]):
+            raise HTTPException(404, "Run not found")
+        return row
+
+    def assigned(c, key, w, lease=None):
+        row = c.execute(
+            "SELECT * FROM jobs WHERE id=? AND server_id=?", (key, w["id"])
+        ).fetchone()
+        if not row or (
+            lease is not None and not secrets.compare_digest(row["lease"] or "", lease)
+        ):
+            raise HTTPException(404, "Assignment not found")
+        return row
+
+    def mail_login(email, url):
+        host = os.getenv("HUB_SMTP_HOST")
+        if not host:
+            if not cfg.development:
+                raise RuntimeError("Configure HUB_SMTP_HOST before enabling login")
+            folder = cfg.data / "mail"
+            folder.mkdir(mode=0o700, exist_ok=True)
+            (folder / f"{uid()}.json").write_text(
+                pack({"email": email, "url": url, "created": now()})
+            )
+            return
+        msg = EmailMessage()
+        msg["From"] = os.environ["HUB_SMTP_FROM"]
+        msg["To"] = email
+        msg["Subject"] = "Sign in to Robot Training Hub"
+        msg.set_content(
+            f"Sign in within 15 minutes:\n{url}\nIf you did not request this, ignore this email."
+        )
+        with smtplib.SMTP(
+            host, int(os.getenv("HUB_SMTP_PORT", "587")), timeout=15
+        ) as smtp:
+            smtp.starttls()
+            if os.getenv("HUB_SMTP_USER"):
+                smtp.login(os.environ["HUB_SMTP_USER"], os.environ["HUB_SMTP_PASSWORD"])
+            smtp.send_message(msg)
+
+    @app.get("/api/health")
+    def health():
+        return {
+            "ok": True,
+            "development": cfg.development,
+            "name": "Robot Training Hub",
+        }
+
+    @app.post("/api/auth/register")
+    def register(body: Email):
+        email = str(body.email).lower()
+        with db.tx() as c:
+            c.execute(
+                "INSERT OR IGNORE INTO users(id,email,created) VALUES(?,?,?)",
+                (uid(), email, now()),
+            )
+        return {
+            "message": "Registration received. An administrator must approve your email before login."
+        }
+
+    @app.post("/api/auth/request")
+    def request_login(body: Email, request: Request):
+        email = str(body.email).lower()
+        token = None
+        with db.tx() as c:
+            for key, limit in [
+                ("email:" + email, 5),
+                ("ip:" + (request.client.host if request.client else "unknown"), 30),
+            ]:
+                r = c.execute(
+                    "SELECT * FROM rate_limits WHERE key=?", (key,)
+                ).fetchone()
+                if r and r["at"] > now() - 900 and r["count"] >= limit:
+                    raise HTTPException(
+                        429, "Please wait before requesting another link"
+                    )
+                c.execute(
+                    "INSERT INTO rate_limits VALUES(?,?,1) ON CONFLICT(key) DO UPDATE SET count=CASE WHEN at<? THEN 1 ELSE count+1 END, at=CASE WHEN at<? THEN excluded.at ELSE at END",
+                    (key, now(), now() - 900, now() - 900),
+                )
+            u = c.execute(
+                "SELECT * FROM users WHERE email=? AND approved=1", (email,)
+            ).fetchone()
+            if u:
+                token = secrets.token_urlsafe(32)
+                c.execute("DELETE FROM magic WHERE user_id=?", (u["id"],))
+                c.execute(
+                    "INSERT INTO magic VALUES(?,?,?)",
+                    (digest(token), u["id"], now() + 900),
+                )
+        if token:
+            try:
+                mail_login(email, f"{cfg.public_url}/login#token={token}")
+            except Exception:
+                log.error("SMTP delivery failed; check SMTP configuration")
+                with db.tx() as c:
+                    c.execute("DELETE FROM magic WHERE hash=?", (digest(token),))
+                raise HTTPException(503, "Email delivery unavailable")
+        return {"message": "If your email is approved, a sign-in link has been sent."}
+
+    @app.post("/api/auth/verify")
+    def verify_login(body: dict, response: Response):
+        token = body.get("token", "")
+        if not isinstance(token, str) or len(token) > 200:
+            raise HTTPException(400, "Invalid link")
+        with db.tx() as c:
+            row = c.execute(
+                "SELECT * FROM magic WHERE hash=? AND expires>?", (digest(token), now())
+            ).fetchone()
+            if not row:
+                raise HTTPException(400, "Link expired or already used")
+            u = c.execute(
+                "SELECT * FROM users WHERE id=? AND approved=1", (row["user_id"],)
+            ).fetchone()
+            if not u:
+                raise HTTPException(403, "Account not approved")
+            c.execute("DELETE FROM magic WHERE hash=?", (digest(token),))
+            c.execute("UPDATE users SET verified=1 WHERE id=?", (u["id"],))
+            session = secrets.token_urlsafe(32)
+            c.execute(
+                "INSERT INTO sessions VALUES(?,?,?)",
+                (digest(session), u["id"], now() + cfg.session_seconds),
+            )
+        response.set_cookie(
+            "hub_session",
+            session,
+            httponly=True,
+            secure=cfg.public_url.startswith("https://"),
+            samesite="strict",
+            max_age=cfg.session_seconds,
+        )
+        return {"ok": True}
+
+    @app.post("/api/auth/logout")
+    def logout(request: Request, response: Response):
+        with db.tx() as c:
+            c.execute(
+                "DELETE FROM sessions WHERE hash=?",
+                (digest(request.cookies.get("hub_session", "")),),
+            )
+        response.delete_cookie("hub_session")
+        return {"ok": True}
+
+    @app.get("/api/me")
+    def me(u=Depends(user)):
+        return u
+
+    @app.get("/api/options")
+    def options(u=Depends(user)):
+        with db.connect() as c:
+            s = db.settings(c)
+        return {**s, "user_env_limit": u["env_limit"]}
+
+    @app.get("/api/runs")
+    def runs(status: str | None = None, q: str = "", u=Depends(user)):
+        with db.connect() as c:
+            rows = c.execute(
+                "SELECT j.* FROM jobs j JOIN users u ON j.user_id=u.id WHERE (? OR j.user_id=?) AND (? IS NULL OR status=?) AND (name LIKE ? OR j.id LIKE ? OR u.email LIKE ?) ORDER BY created DESC LIMIT 500",
+                (
+                    u["role"] == "admin",
+                    u["id"],
+                    status,
+                    status,
+                    "%" + q + "%",
+                    "%" + q + "%",
+                    "%" + q + "%",
+                ),
+            ).fetchall()
+            return [public_job(r, c) for r in rows]
+
+    def submit(body, u):
+        key = uid()
+        with db.connect() as c:
+            s = db.settings(c)
+            if c.execute(
+                "SELECT 1 FROM jobs WHERE user_id=? AND status IN ('QUEUED','STARTING','RUNNING')",
+                (u["id"],),
+            ).fetchone():
+                raise HTTPException(409, "You already have an outstanding training run")
+            if body.task not in s["tasks"]:
+                raise HTTPException(422, "Task is not enabled for this workshop")
+            limit = u["env_limit"] if u["env_limit"] is not None else s["max_envs"]
+            if (
+                body.num_envs not in s["presets"]
+                or not s["min_envs"] <= body.num_envs <= limit
+                or body.iterations > s["max_iterations"]
+            ):
+                raise HTTPException(
+                    422, "Training size exceeds current workshop limits"
+                )
+            motion = next((m for m in s["motions"] if m["id"] == body.motion_id), None)
+            if not motion:
+                raise HTTPException(422, "Select an approved motion")
+            if (
+                body.learning_rate is not None
+                and not s["learning_rate_bounds"][0]
+                <= body.learning_rate
+                <= s["learning_rate_bounds"][1]
+            ):
+                raise HTTPException(422, "Learning rate outside approved range")
+            for name, value in body.rewards.items():
+                bounds = s["reward_bounds"].get(name)
+                if not bounds or not bounds[0] <= value <= bounds[1]:
+                    raise HTTPException(422, "Reward outside approved range")
+            spec = {
+                **body.model_dump(exclude={"motion_id"}),
+                "motion": motion,
+                "run_id": key,
+            }
+            try:
+                checksum = create_snapshot(cfg, key, spec)
+            except (OSError, ValueError) as e:
+                raise HTTPException(503, str(e))
+        with db.tx() as c:
+            current = c.execute(
+                "SELECT approved,env_limit FROM users WHERE id=?", (u["id"],)
+            ).fetchone()
+            if (
+                not current
+                or not current["approved"]
+                or current["env_limit"] != u["env_limit"]
+                or pack(db.settings(c)) != pack(s)
+            ):
+                raise HTTPException(
+                    409,
+                    "Workshop settings changed during preparation; please submit again",
+                )
+            c.execute(
+                "INSERT INTO jobs(id,user_id,name,status,spec,created,estimated_mb,snapshot) VALUES(?,?,?,'QUEUED',?,?,?,?)",
+                (
+                    key,
+                    u["id"],
+                    body.name,
+                    pack(spec),
+                    now(),
+                    estimate(s, spec),
+                    checksum,
+                ),
+            )
+            db.audit(c, u["id"], "submit", {"job": key})
+            return public_job(
+                c.execute("SELECT * FROM jobs WHERE id=?", (key,)).fetchone(), c
+            )
+
+    @app.post("/api/runs", status_code=201)
+    def new_run(body: NewJob, u=Depends(user)):
+        try:
+            result = submit(body, u)
+        except sqlite3.IntegrityError:
+            raise HTTPException(409, "You already have an outstanding training run")
+        schedule(db)
+        return result
+
+    @app.get("/api/runs/{key}")
+    def run(key: str, u=Depends(user)):
+        with db.connect() as c:
+            r = get_job(c, key, u)
+            data = public_job(r, c)
+            data["metrics"] = [
+                {"step": m["step"], **unpack(m["value"])}
+                for m in c.execute(
+                    "SELECT * FROM metrics WHERE job_id=? ORDER BY step DESC LIMIT 1000",
+                    (key,),
+                )
+            ][::-1]
+            data["artifacts"] = [
+                dict(a)
+                for a in c.execute(
+                    "SELECT path,sha256,size FROM artifacts WHERE job_id=? ORDER BY path",
+                    (key,),
+                )
+            ]
+            if data["server_id"]:
+                server = c.execute(
+                    "SELECT last_seen,quarantined FROM servers WHERE id=?",
+                    (data["server_id"],),
+                ).fetchone()
+                data["worker_online"] = (
+                    server["last_seen"] > now() - cfg.heartbeat_timeout
+                )
+                data["quarantined"] = bool(server["quarantined"])
+            return data
+
+    @app.post("/api/runs/{key}/cancel")
+    def cancel(key: str, u=Depends(user)):
+        with db.tx() as c:
+            r = get_job(c, key, u)
+            if r["status"] == "QUEUED":
+                c.execute(
+                    "UPDATE jobs SET status='CANCELED',cancel=1,ended=? WHERE id=?",
+                    (now(), key),
+                )
+            elif r["status"] in ACTIVE:
+                c.execute("UPDATE jobs SET cancel=1 WHERE id=?", (key,))
+            db.audit(c, u["id"], "cancel", {"job": key})
+        return {"ok": True}
+
+    @app.post("/api/admin/runs/{key}/retry", status_code=201)
+    def retry(key: str, u=Depends(admin)):
+        with db.connect() as c:
+            r = get_job(c, key, u)
+            if r["status"] != "FAILED":
+                raise HTTPException(409, "Only confirmed failed runs can be retried")
+            owner = dict(
+                c.execute("SELECT * FROM users WHERE id=?", (r["user_id"],)).fetchone()
+            )
+            spec = unpack(r["spec"])
+        if not owner["approved"]:
+            raise HTTPException(409, "Participant is disabled")
+        body = NewJob(
+            **{k: v for k, v in spec.items() if k not in ("motion", "run_id")},
+            motion_id=spec["motion"]["id"],
+        )
+        result = submit(body, owner)
+        schedule(db)
+        return result
+
+    @app.post("/api/admin/runs/{key}/priority")
+    def priority(key: str, body: dict, u=Depends(admin)):
+        p = body.get("priority")
+        if type(p) != int or not -100 <= p <= 100:
+            raise HTTPException(422, "Priority must be -100 to 100")
+        with db.tx() as c:
+            r = get_job(c, key, u)
+            if r["status"] != "QUEUED":
+                raise HTTPException(409, "Only queued jobs can be reprioritized")
+            c.execute("UPDATE jobs SET priority=? WHERE id=?", (p, key))
+            db.audit(c, u["id"], "priority", {"job": key, "priority": p})
+        return {"ok": True}
+
+    def source_root(key, u):
+        if key == "base":
+            root = cfg.data / "snapshots/base"
+            if not root.exists():
+                with db.tx() as c:
+                    if not root.exists():
+                        create_snapshot(
+                            cfg,
+                            "base",
+                            {
+                                "task": "Mjlab-Tracking-Flat-Booster-K1",
+                                "description": "Workshop baseline — no run yet",
+                            },
+                        )
+            return root
+        with db.connect() as c:
+            r = get_job(c, key, u)
+        root = cfg.data / "snapshots" / r["id"]
+        verify(root, r["snapshot"])
+        return root
+
+    @app.get("/api/code/{key}/tree")
+    def tree(key: str, u=Depends(user)):
+        root = source_root(key, u)
+        return {
+            "files": [
+                str(p.relative_to(root)) for p in sorted(root.rglob("*")) if p.is_file()
+            ],
+            "manifest": json.loads((root / "manifest.json").read_text()),
+        }
+
+    @app.get("/api/code/{key}/file")
+    def code(key: str, path: str, u=Depends(user)):
+        root = source_root(key, u)
+        try:
+            p = safe_path(root, path)
+        except ValueError:
+            raise HTTPException(400, "Invalid path")
+        if not p.is_file() or p.stat().st_size > 1024 * 1024:
+            raise HTTPException(404, "Text file unavailable or too large")
+        try:
+            return {
+                "path": path,
+                "content": p.read_text(),
+                "sha256": sha(p.read_bytes()),
+            }
+        except UnicodeDecodeError:
+            raise HTTPException(415, "Binary asset; use source ZIP")
+
+    @app.get("/api/code/{key}/download")
+    def download_source(key: str, u=Depends(user)):
+        root = source_root(key, u)
+        return StreamingResponse(
+            io.BytesIO(zip_tree(root)),
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="source-{key if key == "base" else root.name}.zip"'
+            },
+        )
+
+    @app.get("/api/runs/{key}/logs")
+    def logs(key: str, offset: int | None = None, u=Depends(user)):
+        with db.connect() as c:
+            r = get_job(c, key, u)
+        path = cfg.data / "runs" / r["id"] / "training.log"
+        if not path.exists():
+            return {"text": "", "offset": 0}
+        with path.open("rb") as f:
+            f.seek(
+                max(0, path.stat().st_size - 128 * 1024)
+                if offset is None
+                else max(0, min(offset, path.stat().st_size))
+            )
+            data = f.read(128 * 1024)
+            return {"text": data.decode(errors="replace"), "offset": f.tell()}
+
+    @app.get("/api/runs/{key}/logs/download")
+    def download_logs(key: str, u=Depends(user)):
+        with db.connect() as c:
+            r = get_job(c, key, u)
+        path = cfg.data / "runs" / r["id"] / "training.log"
+        if not path.exists():
+            raise HTTPException(404, "No logs yet")
+        return FileResponse(path, filename=f"{key}.log", media_type="text/plain")
+
+    @app.get("/api/runs/{key}/artifacts")
+    def artifact(key: str, path: str, u=Depends(user)):
+        with db.connect() as c:
+            r = get_job(c, key, u)
+            if not c.execute(
+                "SELECT 1 FROM artifacts WHERE job_id=? AND path=?", (key, path)
+            ).fetchone():
+                raise HTTPException(404, "Artifact not found")
+        return FileResponse(
+            safe_path(cfg.data / "runs" / r["id"] / "artifacts", path),
+            filename=Path(path).name,
+            media_type="application/octet-stream",
+        )
+
+    @app.get("/api/admin/overview")
+    def overview(u=Depends(admin)):
+        with db.connect() as c:
+            counts = {
+                r["status"]: r["n"]
+                for r in c.execute("SELECT status,count(*) n FROM jobs GROUP BY status")
+            }
+            return {
+                "participants": c.execute(
+                    "SELECT count(*) FROM users WHERE role='participant'"
+                ).fetchone()[0],
+                "jobs": counts,
+                "settings": db.settings(c),
+                "audit": [
+                    dict(r)
+                    for r in c.execute("SELECT * FROM audit ORDER BY id DESC LIMIT 30")
+                ],
+            }
+
+    @app.get("/api/admin/users")
+    def users(u=Depends(admin)):
+        with db.connect() as c:
+            return [dict(r) for r in c.execute("SELECT * FROM users ORDER BY created")]
+
+    @app.post("/api/admin/users")
+    def allow(body: Email, u=Depends(admin)):
+        with db.tx() as c:
+            c.execute(
+                "INSERT INTO users(id,email,approved,created) VALUES(?,?,1,?) ON CONFLICT(email) DO UPDATE SET approved=1",
+                (uid(), str(body.email).lower(), now()),
+            )
+            db.audit(c, u["id"], "allow", {"email": str(body.email)})
+        return {"ok": True}
+
+    @app.put("/api/admin/users/{key}")
+    def edit_user(key: str, body: UserEdit, u=Depends(admin)):
+        if key == u["id"] and (body.role != "admin" or not body.approved):
+            raise HTTPException(409, "Cannot disable your own administrator account")
+        with db.tx() as c:
+            c.execute(
+                "UPDATE users SET approved=?,role=?,env_limit=? WHERE id=?",
+                (body.approved, body.role, body.env_limit, key),
+            )
+            db.audit(c, u["id"], "edit-user", {"user": key, **body.model_dump()})
+        return {"ok": True}
+
+    @app.get("/api/admin/settings")
+    def settings(u=Depends(admin)):
+        with db.connect() as c:
+            return db.settings(c)
+
+    @app.put("/api/admin/settings")
+    def edit_settings(body: Settings, u=Depends(admin)):
+        if not cfg.development and any(
+            m.artifact.startswith("demo/") for m in body.motions
+        ):
+            raise HTTPException(422, "Demo motions are unavailable in production")
+        with db.tx() as c:
+            c.execute(
+                "UPDATE settings SET value=? WHERE id=1", (pack(body.model_dump()),)
+            )
+            db.audit(c, u["id"], "settings", body.model_dump())
+        return {"ok": True}
+
+    @app.get("/api/admin/servers")
+    def servers(u=Depends(admin)):
+        with db.connect() as c:
+            result = []
+            for r in c.execute("SELECT * FROM servers ORDER BY name"):
+                d = dict(r)
+                d.pop("token_hash")
+                d["config"] = unpack(d["config"])
+                d["inventory"] = unpack(d["inventory"])
+                d["online"] = d["last_seen"] > now() - cfg.heartbeat_timeout
+                d["active_jobs"] = c.execute(
+                    "SELECT count(*) FROM jobs WHERE server_id=? AND status IN ('STARTING','RUNNING')",
+                    (d["id"],),
+                ).fetchone()[0]
+                result.append(d)
+            return result
+
+    @app.post("/api/admin/servers", status_code=201)
+    def add_server(body: NewServer, u=Depends(admin)):
+        token = secrets.token_urlsafe(40)
+        key = uid()
+        try:
+            with db.tx() as c:
+                c.execute(
+                    "INSERT INTO servers(id,name,token_hash,config) VALUES(?,?,?,?)",
+                    (key, body.name, digest(token), pack(body.config.model_dump())),
+                )
+                db.audit(c, u["id"], "add-server", {"server": key, "name": body.name})
+        except sqlite3.IntegrityError:
+            raise HTTPException(409, "Server name already exists")
+        return {
+            "id": key,
+            "token": token,
+            "message": "Save this token securely; it will not be shown again",
+        }
+
+    @app.put("/api/admin/servers/{key}")
+    def edit_server(key: str, body: ServerConfig, u=Depends(admin)):
+        with db.tx() as c:
+            if not c.execute("SELECT 1 FROM servers WHERE id=?", (key,)).fetchone():
+                raise HTTPException(404, "Server not found")
+            c.execute(
+                "UPDATE servers SET config=? WHERE id=?", (pack(body.model_dump()), key)
+            )
+            db.audit(c, u["id"], "server-config", {"server": key, **body.model_dump()})
+        return {"ok": True}
+
+    @app.post("/api/admin/servers/{key}/reconcile")
+    def reconcile(key: str, body: dict, u=Depends(admin)):
+        if body.get("confirmed_all_processes_stopped") is not True:
+            raise HTTPException(
+                422,
+                "Confirm all old workshop processes have stopped on this server first",
+            )
+        with db.tx() as c:
+            c.execute(
+                "UPDATE jobs SET status='FAILED',ended=?,error='Administrator confirmed worker processes stopped' WHERE server_id=? AND status IN ('STARTING','RUNNING')",
+                (now(), key),
+            )
+            c.execute("UPDATE servers SET quarantined=0 WHERE id=?", (key,))
+            db.audit(c, u["id"], "reconcile-confirmed-stopped", {"server": key})
+        return {"ok": True}
+
+    @app.post("/api/worker/heartbeat")
+    def heartbeat(body: Heartbeat, w=Depends(worker)):
+        with db.tx() as c:
+            row = c.execute("SELECT * FROM servers WHERE id=?", (w["id"],)).fetchone()
+            active = c.execute(
+                "SELECT id,acknowledged FROM jobs WHERE server_id=? AND status IN ('STARTING','RUNNING')",
+                (w["id"],),
+            ).fetchall()
+            restart = row["boot_id"] and row["boot_id"] != body.boot_id and active
+            missing = any(
+                r["acknowledged"] and r["id"] not in body.active for r in active
+            )
+            quarantined = bool(
+                row["quarantined"] or restart or missing or body.unresolved
+            )
+            if body.inventory.mock and not cfg.development:
+                raise HTTPException(403, "Mock workers require development mode")
+            c.execute(
+                "UPDATE servers SET inventory=?,last_seen=?,boot_id=?,quarantined=? WHERE id=?",
+                (
+                    pack(body.inventory.model_dump()),
+                    now(),
+                    body.boot_id,
+                    quarantined,
+                    w["id"],
+                ),
+            )
+            config = unpack(row["config"])
+        schedule(db)
+        with db.connect() as c:
+            jobs = [
+                dict(r)
+                for r in c.execute(
+                    "SELECT * FROM jobs WHERE server_id=? AND status IN ('STARTING','RUNNING')",
+                    (w["id"],),
+                )
+            ]
+        return {
+            "config": config,
+            "quarantined": quarantined,
+            "assignments": [
+                {
+                    "id": j["id"],
+                    "lease": j["lease"],
+                    "snapshot": j["snapshot"],
+                    "gpu": j["gpu"],
+                    "estimated_mb": j["estimated_mb"],
+                    "spec": unpack(j["spec"]),
+                    "cancel": bool(j["cancel"]),
+                    "acknowledged": bool(j["acknowledged"]),
+                    "config": unpack(j["placement"]) if j["placement"] else config,
+                }
+                for j in jobs
+            ],
+        }
+
+    @app.post("/api/worker/runs/{key}/claim")
+    def claim(key: str, body: dict, w=Depends(worker)):
+        with db.tx() as c:
+            r = assigned(c, key, w, body.get("lease", ""))
+            server = c.execute(
+                "SELECT * FROM servers WHERE id=?", (w["id"],)
+            ).fetchone()
+            if server["quarantined"] or r["acknowledged"] or r["status"] != "STARTING":
+                raise HTTPException(409, "Assignment cannot be claimed")
+            c.execute(
+                "UPDATE jobs SET acknowledged=1,last_report=? WHERE id=?", (now(), key)
+            )
+        return {"cancel": bool(r["cancel"])}
+
+    @app.get("/api/worker/runs/{key}/source")
+    def worker_source(key: str, w=Depends(worker)):
+        with db.connect() as c:
+            r = assigned(c, key, w)
+        root = cfg.data / "snapshots" / r["id"]
+        verify(root, r["snapshot"])
+        return StreamingResponse(
+            io.BytesIO(zip_tree(root)), media_type="application/zip"
+        )
+
+    @app.post("/api/worker/runs/{key}/report")
+    def report(key: str, body: Report, w=Depends(worker)):
+        with db.tx() as c:
+            r = assigned(c, key, w, body.lease)
+            if r["status"] not in ACTIVE:
+                return {"cancel": bool(r["cancel"]), "terminal": True}
+            if not r["acknowledged"]:
+                raise HTTPException(409, "Claim assignment before reporting")
+            if body.iteration > unpack(r["spec"])["iterations"]:
+                raise HTTPException(422, "Iteration exceeds requested duration")
+            if body.execution and len(pack(body.execution)) > 32768:
+                raise HTTPException(413, "Execution metadata too large")
+            if body.status == "COMPLETED" and (
+                not body.execution and not r["execution"]
+            ):
+                raise HTTPException(422, "Execution manifest required")
+            directory = cfg.data / "runs" / key
+            directory.mkdir(parents=True, exist_ok=True)
+            # Idempotent log chunks: retrying a report never duplicates text.
+            seq_file = directory / "log_sequence.json"
+            last = json.loads(seq_file.read_text()) if seq_file.exists() else -1
+            if body.logs and body.log_seq > last:
+                with (directory / "training.log").open("a") as f:
+                    f.write(body.logs)
+                temp = directory / "log_sequence.tmp"
+                temp.write_text(str(body.log_seq))
+                temp.replace(seq_file)
+            status = body.status
+            if r["cancel"] and status == "COMPLETED":
+                status = "CANCELED"
+            c.execute(
+                "UPDATE jobs SET status=?,iteration=max(iteration,?),gpu_mb=?,last_report=?,error=?,execution=COALESCE(?,execution),ended=? WHERE id=?",
+                (
+                    status,
+                    body.iteration,
+                    body.gpu_mb,
+                    now(),
+                    body.error,
+                    pack(body.execution) if body.execution else None,
+                    now() if status not in ACTIVE else None,
+                    key,
+                ),
+            )
+            if body.metrics:
+                c.execute(
+                    "INSERT INTO metrics VALUES(?,?,?) ON CONFLICT(job_id,step) DO UPDATE SET value=excluded.value",
+                    (key, body.iteration, pack(body.metrics)),
+                )
+            if status not in ACTIVE:
+                db.audit(c, w["id"], "finish", {"job": key, "status": status})
+            return {"cancel": bool(r["cancel"]), "terminal": status not in ACTIVE}
+
+    @app.put("/api/worker/runs/{key}/artifact")
+    async def upload(key: str, path: str, request: Request, w=Depends(worker)):
+        with db.connect() as c:
+            r = assigned(c, key, w, request.headers.get("x-job-lease", ""))
+            if r["status"] not in ACTIVE:
+                raise HTTPException(409, "Run already finalized")
+            used = c.execute(
+                "SELECT COALESCE(sum(size),0) FROM artifacts WHERE job_id=?", (key,)
+            ).fetchone()[0]
+        if (
+            not path.endswith((".pt", ".onnx", ".json", ".yaml", ".yml", ".txt"))
+            or len(path) > 250
+        ):
+            raise HTTPException(422, "Artifact type refused")
+        root = cfg.data / "runs" / r["id"] / "artifacts"
+        try:
+            target = safe_path(root, path)
+        except ValueError:
+            raise HTTPException(400, "Invalid path")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temp = target.with_name(target.name + "." + uid() + ".part")
+        size = 0
+        try:
+            with temp.open("wb") as f:
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    if (
+                        size > cfg.artifact_limit
+                        or used + size > 2 * 1024 * 1024 * 1024
+                    ):
+                        raise HTTPException(413, "Artifact quota exceeded")
+                    f.write(chunk)
+            checksum = await asyncio.to_thread(lambda: sha(temp.read_bytes()))
+            with db.tx() as c:
+                # Completion is serialized with publication of the artifact index.
+                current = assigned(c, key, w, request.headers.get("x-job-lease", ""))
+                if current["status"] not in ACTIVE:
+                    raise HTTPException(409, "Run finalized while uploading")
+                if c.execute(
+                    "SELECT 1 FROM artifacts WHERE job_id=? AND path=?", (key, path)
+                ).fetchone():
+                    existing = c.execute(
+                        "SELECT sha256 FROM artifacts WHERE job_id=? AND path=?",
+                        (key, path),
+                    ).fetchone()[0]
+                    if existing != checksum:
+                        raise HTTPException(409, "Published artifacts are immutable")
+                else:
+                    published = c.execute(
+                        "SELECT COALESCE(sum(size),0) FROM artifacts WHERE job_id=?",
+                        (key,),
+                    ).fetchone()[0]
+                    if published + size > 2 * 1024 * 1024 * 1024:
+                        raise HTTPException(413, "Artifact quota exceeded")
+                    temp.replace(target)
+                    target.chmod(0o444)
+                    c.execute(
+                        "INSERT INTO artifacts VALUES(?,?,?,?)",
+                        (key, path, checksum, size),
+                    )
+        finally:
+            temp.unlink(missing_ok=True)
+        return {"sha256": checksum, "size": size}
+
+    dist = ROOT / "frontend/dist"
+    if dist.exists():
+        app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
+
+        @app.get("/{path:path}")
+        def frontend(path: str):
+            if path.startswith("api/"):
+                raise HTTPException(404, "API not found")
+            return FileResponse(dist / "index.html")
+
+    return app
+
+
+app = create_app()

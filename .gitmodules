@@ -1,0 +1,6 @@
+[submodule "vendor/booster_mjlab"]
+	path = vendor/booster_mjlab
+	url = https://github.com/IntelligentRoboticsLab/booster_mjlab.git
+[submodule "vendor/mjlab"]
+	path = vendor/mjlab
+	url = https://github.com/mujocolab/mjlab.git

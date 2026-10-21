@@ -1,0 +1,21 @@
+[Unit]
+Description=Robot Training Hub coordinator
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=robot-workshop
+WorkingDirectory=/srv/robot-training-hub
+EnvironmentFile=/etc/robot-hub/coordinator.env
+ExecStart=/srv/robot-training-hub/.venv/bin/uvicorn hub.app:app --host 127.0.0.1 --port 8000 --workers 1 --no-access-log
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/robot-training-hub/data
+PrivateTmp=true
+TimeoutStopSec=60
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,25 @@
+[Unit]
+Description=Robot Training Hub GPU worker
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=robot-workshop
+WorkingDirectory=/srv/robot-training-hub
+EnvironmentFile=/etc/robot-hub/worker.env
+ExecStart=/srv/robot-training-hub/.venv/bin/robot-worker
+Restart=on-failure
+RestartSec=10
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/srv/robot-training-hub/data
+# Shared host MPS pipe must be visible; do not enable PrivateTmp for MPS workers.
+KillMode=mixed
+# SIGINT allows CUDA work to synchronize before exit; avoid SIGKILL of MPS clients.
+KillSignal=SIGINT
+TimeoutStopSec=90
+SendSIGKILL=no
+[Install]
+WantedBy=multi-user.target

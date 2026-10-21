@@ -1,0 +1,28 @@
+# Runtime data, artifacts, and private configuration
+/data/
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.env
+*.token
+*.pem
+*.key
+*.p12
+*.pfx
+*.sqlite*
+*.log
+
+# Local environments, caches, and generated builds
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+node_modules/
+/frontend/dist/
+*.tsbuildinfo
+/release-manifest.json
+.DS_Store
