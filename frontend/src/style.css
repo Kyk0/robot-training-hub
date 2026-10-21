@@ -2479,3 +2479,27 @@ dd.mono {
     font-size: 11px;
   }
 }
+
+.demo-login {
+  margin-top: 24px;
+  padding: 18px;
+  background: #edf3e5;
+  border: 1px solid #d6e3c7;
+  border-radius: 9px;
+}
+.demo-login b {
+  display: block;
+  font-size: 11px;
+  color: #597548;
+  margin-bottom: 12px;
+}
+.auth-form .demo-login .button {
+  margin-top: 8px;
+}
+.demo-login small {
+  display: block;
+  font-size: 10px;
+  color: #839374;
+  margin-top: 12px;
+  line-height: 1.7;
+}

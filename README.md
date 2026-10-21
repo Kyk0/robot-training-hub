@@ -12,7 +12,7 @@ cd /Users/operator/robot-training-hub
 ./scripts/demo.sh                # build, seed 18 attendees, launch coordinator + 3 mock workers
 ```
 
-Open http://127.0.0.1:8000. The demo prints a single-use administrator link. It uses `admin@workshop.example` and 18 approved `participant01@workshop.example` through `participant18@workshop.example` accounts. These are demo addresses. No password or long-lived login token is hardcoded.
+Open http://127.0.0.1:8000/login and click **Open admin demo** or **Open participant demo**. Local testing requires no email or registration; these shortcuts are disabled outside loopback development mode. The demo also prints a single-use administrator link. It uses `admin@workshop.example` and 18 approved `participant01@workshop.example` through `participant18@workshop.example` accounts. These are demo addresses. No password or long-lived login token is hardcoded.
 
 If dependencies are already installed, run these in separate terminals:
 

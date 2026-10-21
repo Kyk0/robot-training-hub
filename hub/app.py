@@ -1,6 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 import io
+import ipaddress
 import json
 import logging
 import os
@@ -10,6 +11,7 @@ import smtplib
 import sqlite3
 import time
 from email.message import EmailMessage
+from urllib.parse import urlparse
 from fastapi import FastAPI, Depends, HTTPException, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -66,7 +68,19 @@ def create_app(cfg=None):
         ):
             origin = request.headers.get("origin")
             if origin and origin.rstrip("/") != cfg.public_url.rstrip("/"):
-                return Response("Origin refused", status_code=403)
+                allowed_alias = False
+                if local_demo(request):
+                    try:
+                        candidate, expected = urlparse(origin), urlparse(cfg.public_url)
+                        allowed_alias = (
+                            candidate.hostname in {"localhost", "127.0.0.1", "::1"}
+                            and candidate.scheme == expected.scheme
+                            and candidate.port == expected.port
+                        )
+                    except ValueError:
+                        pass
+                if not allowed_alias:
+                    return Response("Origin refused", status_code=403)
             if (
                 not request.url.path.startswith("/api/worker/")
                 and request.headers.get("x-hub-request") != "1"
@@ -150,13 +164,67 @@ def create_app(cfg=None):
                 smtp.login(os.environ["HUB_SMTP_USER"], os.environ["HUB_SMTP_PASSWORD"])
             smtp.send_message(msg)
 
+    def local_demo(request: Request):
+        try:
+            loopback = (
+                request.client is not None
+                and ipaddress.ip_address(request.client.host).is_loopback
+            )
+        except ValueError:
+            loopback = False
+        return (
+            cfg.development
+            and loopback
+            and urlparse(cfg.public_url).hostname in {"localhost", "127.0.0.1", "::1"}
+        )
+
     @app.get("/api/health")
-    def health():
+    def health(request: Request):
         return {
             "ok": True,
             "development": cfg.development,
+            "demo_login": local_demo(request),
             "name": "Robot Training Hub",
         }
+
+    @app.post("/api/auth/demo")
+    def demo_login(body: dict, request: Request, response: Response):
+        if not local_demo(request):
+            raise HTTPException(404, "Not found")
+        role = body.get("role")
+        if role not in ("admin", "participant"):
+            raise HTTPException(422, "Choose an admin or participant demo")
+        email = (
+            "admin@workshop.example"
+            if role == "admin"
+            else "participant01@workshop.example"
+        )
+        with db.tx() as c:
+            account = c.execute(
+                "SELECT * FROM users WHERE email=? AND approved=1 AND role=?",
+                (email, role),
+            ).fetchone()
+            if not account:
+                raise HTTPException(
+                    409,
+                    "Demo accounts are unavailable. Start with scripts/demo.sh first.",
+                )
+            c.execute("UPDATE users SET verified=1 WHERE id=?", (account["id"],))
+            token = secrets.token_urlsafe(32)
+            c.execute(
+                "INSERT INTO sessions VALUES(?,?,?)",
+                (digest(token), account["id"], now() + cfg.session_seconds),
+            )
+            db.audit(c, account["id"], "local-demo-login", {"role": role})
+        response.set_cookie(
+            "hub_session",
+            token,
+            httponly=True,
+            secure=cfg.public_url.startswith("https://"),
+            samesite="strict",
+            max_age=cfg.session_seconds,
+        )
+        return {"role": role, "redirect": "/admin" if role == "admin" else "/dashboard"}
 
     @app.post("/api/auth/register")
     def register(body: Email):

@@ -211,18 +211,25 @@ function Login({ register = false }: { register?: boolean }) {
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
   const { busy, error, run } = useAction();
+  const { data: health } = usePoll<{ demo_login: boolean }>(
+    () => api("/health"),
+    [],
+    30000,
+  );
   const token = new URLSearchParams(location.hash.slice(1)).get("token");
   useEffect(() => {
     if (token) {
       history.replaceState(null, "", "/login");
       run(async () => {
         await api("/auth/verify", "POST", { token });
+        const account = await api<User>("/me");
         await reload();
-        nav("/dashboard");
+        nav(account.role === "admin" ? "/admin" : "/dashboard");
       }, "");
     }
   }, []);
-  if (user) return <Navigate to="/dashboard" />;
+  if (user)
+    return <Navigate to={user.role === "admin" ? "/admin" : "/dashboard"} />;
   return (
     <div className="auth-page">
       <div className="auth-art">
@@ -260,6 +267,45 @@ function Login({ register = false }: { register?: boolean }) {
             ? "Register your email. Your workshop administrator will approve access."
             : "Sign in with a secure link sent to your approved email."}
         </p>
+        {health?.demo_login && (
+          <div className="demo-login">
+            <b>Local demo · no registration or email needed</b>
+            <Button
+              disabled={busy}
+              onClick={() =>
+                run(async () => {
+                  const result = await api("/auth/demo", "POST", {
+                    role: "admin",
+                  });
+                  await reload();
+                  nav(result.redirect);
+                }, "")
+              }
+            >
+              <ShieldCheck size={17} />
+              Open admin demo
+            </Button>
+            <Button
+              variant="secondary"
+              disabled={busy}
+              onClick={() =>
+                run(async () => {
+                  const result = await api("/auth/demo", "POST", {
+                    role: "participant",
+                  });
+                  await reload();
+                  nav(result.redirect);
+                }, "")
+              }
+            >
+              <Users size={17} />
+              Open participant demo
+            </Button>
+            <small>
+              Choose a role to explore. Your session stays signed in.
+            </small>
+          </div>
+        )}
         <form
           onSubmit={(e) => {
             e.preventDefault();
