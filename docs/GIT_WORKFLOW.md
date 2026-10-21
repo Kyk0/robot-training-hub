@@ -44,6 +44,6 @@ git remote add origin <your-repository-url>
 git push -u origin main
 ```
 
-The initial server repositories share the same initial `main` commit. Their training submodules are intentionally uninitialized because workers use each host's existing training interpreter and receive frozen source from the coordinator. Run `git submodule update --init --recursive` there only if using that copy as a coordinator or development checkout.
+The server repositories share the same `main` history, updated by fast-forward from the organizer's Git bundle. Their training submodules are intentionally uninitialized because workers use each host's existing training interpreter and receive frozen source from the coordinator. Run `git submodule update --init --recursive` there only if using that copy as a coordinator or development checkout.
 
-`data/robot-training-hub.bundle` is an offline backup of the platform's initial Git history. Runtime data and upstream submodule object histories are not included. The upstream URLs and exact revisions are recorded in `.gitmodules` and the main repository's gitlinks.
+`data/robot-training-hub.bundle` is an offline backup of the platform's current Git history, refreshed during deployment. Runtime data and upstream submodule object histories are not included. The upstream URLs and exact revisions are recorded in `.gitmodules` and the main repository's gitlinks.
