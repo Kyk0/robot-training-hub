@@ -88,6 +88,10 @@ class DB:
             columns = {row[1] for row in c.execute("PRAGMA table_info(users)")}
             if "password_hash" not in columns:
                 c.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+            if "deleted_at" not in columns:
+                c.execute("ALTER TABLE users ADD COLUMN deleted_at REAL")
+            if "credential_email_at" not in columns:
+                c.execute("ALTER TABLE users ADD COLUMN credential_email_at REAL")
             current = (
                 unpack(c.execute("SELECT value FROM settings WHERE id=1").fetchone()[0])
                 if c.execute("SELECT 1 FROM settings WHERE id=1").fetchone()

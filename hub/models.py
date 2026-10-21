@@ -1,6 +1,14 @@
 import math
 import re
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    model_validator,
+    AfterValidator,
+)
+from typing import Annotated
 from typing import Literal
 
 
@@ -17,20 +25,31 @@ class PasswordLogin(Strict):
     password: str = Field(min_length=1, max_length=256)
 
 
+def power_of_two(value):
+    if value < 1 or value & (value - 1):
+        raise ValueError("Environment counts must be powers of two")
+    return value
+
+
+EnvironmentCount = Annotated[
+    int, Field(strict=True, ge=1, le=16384), AfterValidator(power_of_two)
+]
+
+
 class AddParticipant(Email):
-    env_limit: int | None = Field(default=None, ge=1, le=16384)
+    env_limit: EnvironmentCount | None = None
 
 
 class ParticipantList(Strict):
     emails: list[EmailStr] = Field(min_length=1, max_length=200)
-    env_limit: int | None = Field(default=None, ge=1, le=16384)
+    env_limit: EnvironmentCount | None = None
 
 
 class NewJob(Strict):
     name: str = Field(min_length=1, max_length=80, pattern=r"^[^\x00-\x1f\x7f]+$")
     task: Literal["Mjlab-Tracking-Flat-Booster-K1"] = "Mjlab-Tracking-Flat-Booster-K1"
     motion_id: str = Field(max_length=100)
-    num_envs: int = Field(ge=1, le=16384)
+    num_envs: EnvironmentCount
     iterations: int = Field(ge=1, le=100000)
     seed: int = Field(default=42, ge=0, le=2147483647)
     learning_rate: float | None = None
@@ -40,7 +59,26 @@ class NewJob(Strict):
 class UserEdit(Strict):
     approved: bool
     role: Literal["participant", "admin"] = "participant"
-    env_limit: int | None = Field(default=None, ge=1, le=16384)
+    env_limit: EnvironmentCount | None = None
+
+
+class IssuePassword(Strict):
+    send_email: bool = True
+
+
+class EmailSettings(Strict):
+    host: str = Field(min_length=1, max_length=253, pattern=r"^[a-zA-Z0-9.-]+$")
+    port: Literal[465, 587] = 587
+    security: Literal["starttls", "ssl"] = "starttls"
+    sender: EmailStr
+    username: str = Field(default="", max_length=254, pattern=r"^[^\r\n]*$")
+    password: str = Field(default="", max_length=1024)
+
+    @model_validator(mode="after")
+    def tls_port(self):
+        if (self.security, self.port) not in {("starttls", 587), ("ssl", 465)}:
+            raise ValueError("Use STARTTLS on 587 or TLS on 465")
+        return self
 
 
 class Motion(Strict):
@@ -58,10 +96,10 @@ class MemoryProfile(Strict):
 
 class Settings(Strict):
     paused: bool = False
-    default_envs: int = Field(ge=1, le=16384)
-    min_envs: int = Field(ge=1, le=16384)
-    max_envs: int = Field(ge=1, le=16384)
-    presets: list[int] = Field(min_length=1, max_length=16)
+    default_envs: EnvironmentCount
+    min_envs: EnvironmentCount
+    max_envs: EnvironmentCount
+    presets: list[EnvironmentCount] = Field(min_length=1, max_length=16)
     max_iterations: int = Field(ge=1, le=100000)
     max_running_jobs: int = Field(default=10, ge=1, le=100)
     gpu_memory_percent: int = Field(default=80, ge=10, le=95)
@@ -98,7 +136,7 @@ class GPULimits(Strict):
     max_jobs: int = Field(ge=1, le=18)
     reserve_mb: int = Field(ge=0, le=1000000)
     margin_mb: int = Field(ge=256, le=100000)
-    max_envs: int = Field(ge=1, le=16384)
+    max_envs: EnvironmentCount
 
 
 class ServerConfig(GPULimits):

@@ -28,6 +28,7 @@ export type User = {
   approved: boolean;
   verified: boolean;
   env_limit: number | null;
+  credential_email_at?: number | null;
 };
 export type Run = {
   id: string;

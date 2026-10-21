@@ -4,11 +4,13 @@ A runnable React + TypeScript / FastAPI workshop platform for Booster K1 motion-
 
 ## Current workshop deployment
 
-The backend now runs on the Coordinator host at private loopback port 8010. Open <http://127.0.0.1:8000/login> on the Mac through the existing SSH preview proxy. Sign in with the organizer email and password saved privately in `data/workshop/admin-credentials.txt`. The Mac data directory is a pre-migration archive; live accounts and artifacts are on the workstation.
+Open **https://hub.example.edu/login**, or use the entry page **https://hub.example.edu/**. The backend runs on the Coordinator host, and all three real workers connect directly. The Mac can be offline.
 
-Environment choices are **1024 / 2048 / 4096**, default **2048**, with an **80% GPU memory ceiling**, **10 running jobs total**, and the stricter H100 memory reserve. Public HTTPS/networking was explicitly deferred. The GitHub Pages entry page is published separately and its launch button remains disabled until that connection is ready.
+Sign in as **admin@example.edu** with the password saved privately in `data/workshop/admin-credentials.txt`. Add participant emails and their limits in Admin → Participants, then generate/copy or email account passwords. Configure a sender in Admin → Settings → Email delivery. See [account and email setup](docs/EMAIL.md). An SMTP account is still needed for real delivery.
 
-See [current deployment, validation, and next steps](docs/CURRENT_STATUS.md). The private source repository is [Kyk0/robot-training-hub](https://github.com/Kyk0/robot-training-hub). `scripts/workshop.sh services` starts the Mac's private preview proxy; it does not start a second coordinator. The historical local/demo setup below remains available for isolated testing.
+Environment choices are **1024 / 2048 / 4096**, default **2048**, with an **80% GPU memory ceiling**, **10 running jobs total**, and the stricter H100 memory reserve. Existing workstation sites are preserved. MPS remains off.
+
+See [deployment status and operations](docs/CURRENT_STATUS.md), [real workshop guide](docs/REAL_WORKSHOP.md), and [validation](docs/VALIDATION.md). Private source: [Kyk0/robot-training-hub](https://github.com/Kyk0/robot-training-hub). The Mac data directory is an archive; the live database is on the workstation. The historical local/demo setup below remains available for isolated testing.
 
 ## Quick local demonstration
 

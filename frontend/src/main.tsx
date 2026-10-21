@@ -346,8 +346,7 @@ function Login() {
         </form>
         <ErrorBox error={action.error} />
         <p className="auth-switch">
-          Invited participants can open the sign-in link provided by the
-          administrator.
+          Use the email and password sent by your workshop administrator.
         </p>
         <button
           className="text-link"
@@ -1754,30 +1753,59 @@ function Servers() {
 
 function Participants() {
   const { data: users, error } = usePoll<User[]>(() => api("/admin/users"));
+  const { data: mail } = usePoll<any>(() => api("/admin/email"));
   const [emails, setEmails] = useState(""),
     [limit, setLimit] = useState(2048),
     [edit, setEdit] = useState<User>(),
-    [invite, setInvite] = useState("");
+    [removing, setRemoving] = useState<User>(),
+    [invite, setInvite] = useState(""),
+    [credentials, setCredentials] = useState<any[]>([]),
+    [sendEmails, setSendEmails] = useState(false),
+    [search, setSearch] = useState("");
   const action = useAction();
+  useEffect(() => {
+    setSendEmails(!!mail?.configured);
+  }, [mail?.configured]);
+  const issue = async (id: string, send: boolean) => {
+    const result = await api("/admin/users/" + id + "/password", "POST", {
+      send_email: send,
+    });
+    setCredentials((previous) => [
+      ...previous.filter((c) => c.email !== result.email),
+      result,
+    ]);
+  };
   return (
     <>
       <Head
         title="Participants"
-        text="Add approved emails and set each participant’s maximum environments. Each person can have one outstanding run."
+        text="Approve emails, choose an environment limit, and send account passwords. One outstanding run per person."
       />
       <ErrorBox error={error || action.error} />
+      {!mail?.configured && (
+        <section className="panel details">
+          <h3>Email delivery needs setup</h3>
+          <p>
+            You can generate and copy passwords now. To send them, connect an
+            email account in{" "}
+            <Link to="/admin/settings">Workshop settings → Email delivery</Link>
+            .
+          </p>
+        </section>
+      )}
       <form
         className="panel details"
         onSubmit={(e) => {
           e.preventDefault();
           action.run(async () => {
-            const list = emails.split(/[\s,;]+/).filter(Boolean);
-            await api("/admin/users/bulk", "POST", {
+            const list = [...new Set(emails.split(/[\s,;]+/).filter(Boolean))];
+            const added = await api("/admin/users/bulk", "POST", {
               emails: list,
               env_limit: limit,
             });
             setEmails("");
-          }, "Participants added");
+            for (const id of added.user_ids) await issue(id, sendEmails);
+          }, "Participant accounts prepared. Check delivery results below.");
         }}
       >
         <div className="form-grid">
@@ -1791,26 +1819,87 @@ function Participants() {
               placeholder="One email per line, or separated by commas"
             />
           </label>
-          <Field
-            label="Maximum environments"
-            value={limit}
-            min={1}
-            max={16384}
-            onChange={setLimit}
-          />
+          <label>
+            Maximum environments
+            <select
+              value={limit}
+              onChange={(e) => setLimit(Number(e.target.value))}
+            >
+              {ENV_OPTIONS.map((n) => (
+                <option key={n} value={n}>
+                  {n.toLocaleString()}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
+        {mail?.configured && (
+          <Toggle
+            label="Email passwords after adding participants"
+            value={sendEmails}
+            onChange={setSendEmails}
+          />
+        )}
         <Button type="submit" disabled={action.busy}>
           <Plus size={16} />
-          Add participants
+          {action.busy
+            ? "Preparing accounts…"
+            : sendEmails
+              ? "Add & email passwords"
+              : "Add & generate passwords"}
         </Button>
       </form>
+      {credentials.length > 0 && (
+        <section className="panel details">
+          <div className="section-title">
+            <h3>Generated passwords</h3>
+            <Button variant="secondary" onClick={() => setCredentials([])}>
+              Dismiss passwords
+            </Button>
+          </div>
+          <p>
+            These are the passwords just generated. Copy them now; saved
+            passwords cannot be retrieved. Resetting a password signs that
+            participant out.
+          </p>
+          {credentials.map((c) => (
+            <div className="panel details" key={c.email}>
+              <strong>{c.email}</strong>
+              <p>
+                {c.delivery === "sent"
+                  ? "Email accepted by the mail server."
+                  : c.delivery === "failed"
+                    ? "Email was not confirmed. Copy the password or fix email settings and try again."
+                    : c.delivery === "development"
+                      ? "Development outbox only — no email sent."
+                      : "Password generated; email not requested."}
+              </p>
+              <div className="token-row">
+                <input
+                  readOnly
+                  value={c.password}
+                  aria-label={"New password for " + c.email}
+                />
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    navigator.clipboard.writeText(
+                      `Sign in: ${c.url}\nEmail: ${c.email}\nPassword: ${c.password}`,
+                    )
+                  }
+                >
+                  <Copy size={15} />
+                  Copy login
+                </Button>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
       {invite && (
         <section className="panel details">
           <h3>Participant sign-in link</h3>
-          <p>
-            This link expires in 15 minutes and works once. Share it with the
-            intended participant.
-          </p>
+          <p>Single use; expires in 15 minutes.</p>
           <div className="token-row">
             <input readOnly value={invite} />
             <Button
@@ -1827,6 +1916,17 @@ function Participants() {
         </section>
       )}
       <section className="panel">
+        <div className="details">
+          <label>
+            Find participant
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search email"
+            />
+          </label>
+        </div>
         <div className="table-scroll">
           <table>
             <thead>
@@ -1835,49 +1935,94 @@ function Participants() {
                 <th>Role</th>
                 <th>Access</th>
                 <th>Environment limit</th>
+                <th>Credential email</th>
                 <th />
               </tr>
             </thead>
             <tbody>
-              {users?.map((u) => (
-                <tr key={u.id}>
-                  <td>{u.email}</td>
-                  <td>{u.role}</td>
-                  <td>
-                    <Badge status={u.approved ? "APPROVED" : "DISABLED"} />
-                  </td>
-                  <td>{u.env_limit?.toLocaleString() || "Workshop default"}</td>
-                  <td>
-                    <div className="actions">
-                      <Button
-                        variant="secondary small"
-                        onClick={() => setEdit({ ...u })}
-                      >
-                        Edit
-                      </Button>
-                      {u.approved && (
+              {users
+                ?.filter((u) =>
+                  u.email.toLowerCase().includes(search.toLowerCase()),
+                )
+                .map((u) => (
+                  <tr key={u.id}>
+                    <td>{u.email}</td>
+                    <td>{u.role}</td>
+                    <td>
+                      <Badge status={u.approved ? "APPROVED" : "DISABLED"} />
+                    </td>
+                    <td>
+                      {u.env_limit?.toLocaleString() || "Workshop default"}
+                    </td>
+                    <td>
+                      {u.credential_email_at
+                        ? date(u.credential_email_at)
+                        : "Not sent"}
+                    </td>
+                    <td>
+                      <div className="actions">
                         <Button
                           variant="secondary small"
-                          onClick={() =>
-                            action.run(async () => {
-                              setInvite(
-                                (
-                                  await api(
-                                    "/admin/users/" + u.id + "/invite",
-                                    "POST",
-                                  )
-                                ).url,
-                              );
-                            }, "")
-                          }
+                          disabled={action.busy}
+                          onClick={() => setEdit({ ...u })}
                         >
-                          Sign-in link
+                          Edit
                         </Button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                        {u.approved && u.role === "participant" && (
+                          <>
+                            <Button
+                              variant="secondary small"
+                              disabled={action.busy}
+                              onClick={() =>
+                                action.run(() => issue(u.id, false), "")
+                              }
+                            >
+                              Generate password
+                            </Button>
+                            <Button
+                              variant="secondary small"
+                              disabled={action.busy || !mail?.configured}
+                              onClick={() =>
+                                action.run(() => issue(u.id, true), "")
+                              }
+                            >
+                              Reset & email password
+                            </Button>
+                            <Button
+                              variant="secondary small"
+                              disabled={action.busy}
+                              onClick={() =>
+                                action.run(
+                                  async () =>
+                                    setInvite(
+                                      (
+                                        await api(
+                                          "/admin/users/" + u.id + "/invite",
+                                          "POST",
+                                        )
+                                      ).url,
+                                    ),
+                                  "",
+                                )
+                              }
+                            >
+                              Sign-in link
+                            </Button>
+                          </>
+                        )}
+                        {u.role === "participant" && (
+                          <Button
+                            variant="danger small"
+                            disabled={action.busy}
+                            onClick={() => setRemoving(u)}
+                          >
+                            Delete
+                          </Button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
             </tbody>
           </table>
         </div>
@@ -1933,6 +2078,7 @@ function Participants() {
             </div>
             <div className="modal-footer">
               <Button
+                disabled={action.busy}
                 onClick={() =>
                   action.run(async () => {
                     await api("/admin/users/" + edit.id, "PUT", {
@@ -1950,7 +2096,189 @@ function Participants() {
           </section>
         </div>
       )}
+      {removing && (
+        <div className="modal-backdrop">
+          <section className="modal compact">
+            <div className="section-title">
+              <h2>Delete participant</h2>
+              <button
+                onClick={() => setRemoving(undefined)}
+                aria-label="Close delete dialog"
+              >
+                <X />
+              </button>
+            </div>
+            <div className="modal-content">
+              <p>
+                Delete <strong>{removing.email}</strong>?
+              </p>
+              <p>
+                This removes their access and cancels queued jobs. Active jobs
+                receive a stop request. Past runs remain available to
+                administrators.
+              </p>
+              <ErrorBox error={action.error} />
+            </div>
+            <div className="modal-footer">
+              <Button
+                variant="secondary"
+                onClick={() => setRemoving(undefined)}
+              >
+                Keep participant
+              </Button>
+              <Button
+                variant="danger"
+                disabled={action.busy}
+                onClick={() =>
+                  action.run(async () => {
+                    await api("/admin/users/" + removing.id, "DELETE");
+                    setCredentials((previous) =>
+                      previous.filter((c) => c.email !== removing.email),
+                    );
+                    setRemoving(undefined);
+                  }, "Participant deleted")
+                }
+              >
+                Delete participant
+              </Button>
+            </div>
+          </section>
+        </div>
+      )}
     </>
+  );
+}
+
+function EmailDelivery() {
+  const { data, error } = usePoll<any>(() => api("/admin/email"), [], 30000);
+  const [form, setForm] = useState<any>();
+  const action = useAction();
+  useEffect(() => {
+    if (data && !form)
+      setForm({
+        ...data,
+        host: data.host || "smtp.gmail.com",
+        port: data.port || 587,
+        security: data.security || "starttls",
+        password: "",
+      });
+  }, [data]);
+  const update = (key: string, value: any) =>
+    setForm({ ...form, [key]: value });
+  if (!form) return <ErrorBox error={error} />;
+  return (
+    <section className="panel details">
+      <h2>Email delivery</h2>
+      <p>
+        {data?.configured
+          ? "An email account is configured. Use Send test email to verify sending."
+          : "Connect one email account to send participant passwords. For Gmail, use an app password."}
+      </p>
+      <p>
+        <a
+          href="https://support.google.com/mail/answer/185833"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Google app-password instructions
+        </a>
+      </p>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          action.run(async () => {
+            const saved = await api("/admin/email", "PUT", {
+              host: form.host,
+              port: form.port,
+              security: form.security,
+              sender: form.sender,
+              username: form.username,
+              password: form.password,
+            });
+            setForm({ ...form, ...saved, password: "" });
+          }, "Email connection verified and saved");
+        }}
+      >
+        <div className="form-grid">
+          <label>
+            SMTP server
+            <input
+              required
+              value={form.host}
+              onChange={(e) => update("host", e.target.value)}
+              placeholder="smtp.gmail.com"
+            />
+          </label>
+          <label>
+            Connection
+            <select
+              value={form.security}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  security: e.target.value,
+                  port: e.target.value === "ssl" ? 465 : 587,
+                })
+              }
+            >
+              <option value="starttls">STARTTLS · port 587</option>
+              <option value="ssl">TLS · port 465</option>
+            </select>
+          </label>
+          <label>
+            Sender email
+            <input
+              required
+              type="email"
+              value={form.sender}
+              onChange={(e) => update("sender", e.target.value)}
+              placeholder="your-address@gmail.com"
+            />
+          </label>
+          <label>
+            Account username
+            <input
+              value={form.username}
+              onChange={(e) => update("username", e.target.value)}
+              autoComplete="off"
+            />
+          </label>
+          <label>
+            App password
+            <input
+              type="password"
+              value={form.password}
+              onChange={(e) => update("password", e.target.value)}
+              autoComplete="new-password"
+              placeholder={
+                data?.has_password
+                  ? "Saved — leave blank to keep"
+                  : "Enter privately here"
+              }
+            />
+          </label>
+        </div>
+        <ErrorBox error={action.error || error} />
+        <div className="actions">
+          <Button type="submit" disabled={action.busy}>
+            Verify & save email account
+          </Button>
+          <Button
+            variant="secondary"
+            disabled={action.busy || !(form.configured || data?.configured)}
+            onClick={() =>
+              action.run(async () => {
+                const result = await api("/admin/email/test", "POST");
+                if (result.delivery !== "sent")
+                  throw new Error("Development outbox only; no email sent.");
+              }, "Test email accepted by the mail server")
+            }
+          >
+            Send test email to me
+          </Button>
+        </div>
+      </form>
+    </section>
   );
 }
 function WorkshopSettings() {
@@ -1982,6 +2310,7 @@ function WorkshopSettings() {
         text="Set environment limits and the maximum number of concurrent training jobs."
       />
       <ErrorBox error={error || action.error} />
+      <EmailDelivery />
       {form && (
         <form
           onSubmit={(e) => {

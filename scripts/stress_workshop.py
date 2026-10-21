@@ -19,6 +19,23 @@ import httpx
 ACTIVE = {"QUEUED", "STARTING", "RUNNING"}
 
 
+class MonitorClient(httpx.Client):
+    """Retry read-only monitoring after a public relay interruption."""
+
+    def get(self, *args, **kwargs):
+        for attempt in range(4):
+            try:
+                response = super().get(*args, **kwargs)
+                if response.status_code not in (502, 503, 504) or attempt == 3:
+                    response.raise_for_status()
+                    return response
+            except httpx.TransportError:
+                if attempt == 3:
+                    raise
+            self.read_retries = getattr(self, "read_retries", 0) + 1
+            time.sleep(1)
+
+
 def percentile(values, p):
     if not values:
         return None
@@ -55,12 +72,15 @@ def participant(case):
 
     try:
         with httpx.Client(
-            base_url=url, headers={"X-Hub-Request": "1"}, timeout=120
+            base_url=url,
+            headers={"X-Hub-Request": "1"},
+            timeout=120,
+            transport=httpx.HTTPTransport(retries=3),
         ) as c:
             request(
                 c, "POST", "/api/auth/verify", json={"token": token}
             ).raise_for_status()
-            assert c.get("/api/admin/users").status_code == 403
+            assert request(c, "GET", "/api/admin/users").status_code == 403
             spec = {
                 "name": name,
                 "motion_id": motion,
@@ -152,7 +172,12 @@ def traffic(case):
     times = []
     codes = Counter()
     deadline = time.monotonic() + seconds
-    with httpx.Client(base_url=url, headers={"X-Hub-Request": "1"}, timeout=30) as c:
+    with httpx.Client(
+        base_url=url,
+        headers={"X-Hub-Request": "1"},
+        timeout=30,
+        transport=httpx.HTTPTransport(retries=3),
+    ) as c:
         for attempt in range(6):
             try:
                 c.post("/api/auth/verify", json={"token": token}).raise_for_status()
@@ -217,7 +242,12 @@ def main():
         for line in args.credentials.read_text().splitlines()
         if ": " in line
     )
-    admin = httpx.Client(base_url=args.url, headers={"X-Hub-Request": "1"}, timeout=120)
+    admin = MonitorClient(
+        base_url=args.url,
+        headers={"X-Hub-Request": "1"},
+        timeout=httpx.Timeout(30, connect=5),
+        transport=httpx.HTTPTransport(retries=3),
+    )
     admin.post(
         "/api/auth/password",
         json={"email": values["Email"], "password": values["Password"]},
@@ -279,6 +309,8 @@ def main():
     peak_queued = 0
     violations = []
     last_print = 0
+    futures = []
+    traffic_futures = []
     started = time.monotonic()
     print(
         f"{identity}: {args.participants} real participants, {args.envs} environments, {args.iterations} iterations; global cap {settings['max_running_jobs']}, memory ceiling {settings['gpu_memory_percent']}%.",
@@ -368,6 +400,22 @@ def main():
                 except Exception as exc:
                     traffic_results.append({"error": str(exc)})
     finally:
+        # Executor shutdown waits for child processes. Preserve their evidence
+        # even if a monitoring request failed before normal result collection.
+        if not results:
+            for future in futures:
+                if future.done():
+                    try:
+                        results.append(future.result())
+                    except Exception as exc:
+                        results.append({"status": "TEST_ERROR", "error": str(exc)})
+        if not traffic_results:
+            for future in traffic_futures:
+                if future.done():
+                    try:
+                        traffic_results.append(future.result())
+                    except Exception as exc:
+                        traffic_results.append({"error": str(exc)})
         current = admin.get("/api/runs", params={"q": identity}).json()
         for job in current:
             if job["status"] in ACTIVE:
@@ -393,6 +441,7 @@ def main():
             "violations": sorted(set(violations)),
             "results": results,
             "traffic": traffic_results,
+            "monitor_read_retries": getattr(admin, "read_retries", 0),
             "samples": samples,
             "temporary_accounts_disabled": True,
         }

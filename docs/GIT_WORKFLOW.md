@@ -37,13 +37,13 @@ git commit -m "Describe the behavior changed"
 
 Before workshop deployment, finish or reconcile active jobs, rebuild the frontend, commit the reviewed changes, and run `./scripts/copy-workers.sh` to refresh the three deployment copies. That script deploys files and leaves runtime data on its host. It does not automatically merge Git histories. Once a shared remote exists, update server repositories with `git pull --ff-only` and rebuild/install as needed instead of editing deployed files independently.
 
-No hosting provider or public repository is created automatically. To attach a repository you own:
+The active private remote is `https://github.com/Kyk0/robot-training-hub`. Its Pages workflow publishes only `public-site/`. For a separate installation, attach a repository you own:
 
 ```bash
 git remote add origin <your-repository-url>
 git push -u origin main
 ```
 
-The server repositories share the same `main` history, updated by fast-forward from the organizer's Git bundle. Their training submodules are intentionally uninitialized because workers use each host's existing training interpreter and receive frozen source from the coordinator. Run `git submodule update --init --recursive` there only if using that copy as a coordinator or development checkout.
+The server repositories share the same `main` history, updated by fast-forward from the organizer's Git bundle. Worker A/Worker B training submodules can remain uninitialized because workers use each host's existing training interpreter and receive frozen source from the coordinator. The workstation coordinator has both pinned submodules initialized. Run `git submodule update --init --recursive` there only if using that copy as a coordinator or development checkout.
 
 `data/robot-training-hub.bundle` is an offline backup of the platform's current Git history, refreshed during deployment. Runtime data and upstream submodule object histories are not included. The upstream URLs and exact revisions are recorded in `.gitmodules` and the main repository's gitlinks.

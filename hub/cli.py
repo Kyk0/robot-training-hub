@@ -40,7 +40,7 @@ def provision_password(db, email, path):
 def add_admin(db, email):
     with db.tx() as c:
         c.execute(
-            "INSERT INTO users(id,email,role,approved,created) VALUES(?,?,'admin',1,?) ON CONFLICT(email) DO UPDATE SET role='admin',approved=1",
+            "INSERT INTO users(id,email,role,approved,created) VALUES(?,?,'admin',1,?) ON CONFLICT(email) DO UPDATE SET role='admin',approved=1,deleted_at=NULL",
             (uid(), email.lower(), now()),
         )
 

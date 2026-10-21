@@ -10,10 +10,8 @@ import os
 from pathlib import Path
 import secrets
 import socket
-import smtplib
 import sqlite3
 import time
-from email.message import EmailMessage
 from urllib.parse import urlparse
 from fastapi import FastAPI, Depends, HTTPException, Request, Response
 from fastapi.responses import (
@@ -27,6 +25,8 @@ from .db import DB, ACTIVE, digest, now, pack, uid, unpack
 from .models import (
     Email,
     PasswordLogin,
+    IssuePassword,
+    EmailSettings,
     AddParticipant,
     ParticipantList,
     NewJob,
@@ -49,6 +49,7 @@ from .motions import (
 )
 from .passwords import verify_password, hash_password
 from .tensorboard import TensorBoards
+from .emailer import Mailer
 
 log = logging.getLogger("hub")
 
@@ -57,6 +58,7 @@ def create_app(cfg=None):
     cfg = cfg or Config()
     db = DB(cfg)
     tensorboards = TensorBoards(cfg)
+    mailer = Mailer(cfg)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -169,30 +171,12 @@ def create_app(cfg=None):
         return row
 
     def mail_login(email, url):
-        host = os.getenv("HUB_SMTP_HOST")
-        if not host:
-            if not cfg.development:
-                raise RuntimeError("Configure HUB_SMTP_HOST before enabling login")
-            folder = cfg.data / "mail"
-            folder.mkdir(mode=0o700, exist_ok=True)
-            (folder / f"{uid()}.json").write_text(
-                pack({"email": email, "url": url, "created": now()})
-            )
-            return
-        msg = EmailMessage()
-        msg["From"] = os.environ["HUB_SMTP_FROM"]
-        msg["To"] = email
-        msg["Subject"] = "Sign in to Robot Training Hub"
-        msg.set_content(
-            f"Sign in within 15 minutes:\n{url}\nIf you did not request this, ignore this email."
+        return mailer.send(
+            email,
+            "Sign in to Robot Training Hub",
+            f"Sign in within 15 minutes:\n{url}\nIf you did not request this, ignore this email.",
+            {"url": url, "created": now()},
         )
-        with smtplib.SMTP(
-            host, int(os.getenv("HUB_SMTP_PORT", "587")), timeout=15
-        ) as smtp:
-            smtp.starttls()
-            if os.getenv("HUB_SMTP_USER"):
-                smtp.login(os.environ["HUB_SMTP_USER"], os.environ["HUB_SMTP_PASSWORD"])
-            smtp.send_message(msg)
 
     def local_demo(request: Request):
         try:
@@ -286,6 +270,14 @@ def create_app(cfg=None):
             raise HTTPException(401, "Email or password is incorrect")
         token = secrets.token_urlsafe(32)
         with db.tx() as c:
+            current = c.execute(
+                "SELECT * FROM users WHERE id=? AND approved=1 AND deleted_at IS NULL",
+                (account["id"],),
+            ).fetchone()
+            if not current or current["password_hash"] != account["password_hash"]:
+                raise HTTPException(
+                    401, "Account access or password changed; sign in again"
+                )
             c.execute(
                 "INSERT INTO sessions VALUES(?,?,?)",
                 (digest(token), account["id"], now() + cfg.session_seconds),
@@ -705,7 +697,7 @@ def create_app(cfg=None):
             return {
                 "coordinator_host": socket.gethostname(),
                 "participants": c.execute(
-                    "SELECT count(*) FROM users WHERE role='participant'"
+                    "SELECT count(*) FROM users WHERE role='participant' AND deleted_at IS NULL"
                 ).fetchone()[0],
                 "jobs": counts,
                 "settings": db.settings(c),
@@ -720,14 +712,16 @@ def create_app(cfg=None):
         with db.connect() as c:
             return [
                 {k: r[k] for k in r.keys() if k != "password_hash"}
-                for r in c.execute("SELECT * FROM users ORDER BY created")
+                for r in c.execute(
+                    "SELECT * FROM users WHERE deleted_at IS NULL ORDER BY created"
+                )
             ]
 
     @app.post("/api/admin/users")
     def allow(body: AddParticipant, u=Depends(admin)):
         with db.tx() as c:
             c.execute(
-                "INSERT INTO users(id,email,approved,created) VALUES(?,?,1,?) ON CONFLICT(email) DO UPDATE SET approved=1",
+                "INSERT INTO users(id,email,approved,created) VALUES(?,?,1,?) ON CONFLICT(email) DO UPDATE SET approved=1,deleted_at=NULL",
                 (uid(), str(body.email).lower(), now()),
             )
             if body.env_limit is not None:
@@ -743,12 +737,140 @@ def create_app(cfg=None):
         if key == u["id"] and (body.role != "admin" or not body.approved):
             raise HTTPException(409, "Cannot disable your own administrator account")
         with db.tx() as c:
+            if not c.execute(
+                "SELECT 1 FROM users WHERE id=? AND deleted_at IS NULL", (key,)
+            ).fetchone():
+                raise HTTPException(404, "Account not found")
             c.execute(
                 "UPDATE users SET approved=?,role=?,env_limit=? WHERE id=?",
                 (body.approved, body.role, body.env_limit, key),
             )
             db.audit(c, u["id"], "edit-user", {"user": key, **body.model_dump()})
         return {"ok": True}
+
+    @app.delete("/api/admin/users/{key}")
+    def delete_participant(key: str, u=Depends(admin)):
+        with db.tx() as c:
+            target = c.execute(
+                "SELECT * FROM users WHERE id=? AND deleted_at IS NULL", (key,)
+            ).fetchone()
+            if not target:
+                raise HTTPException(404, "Participant not found")
+            if target["role"] != "participant":
+                raise HTTPException(
+                    409, "Administrator accounts cannot be deleted here"
+                )
+            c.execute(
+                "UPDATE users SET approved=0,deleted_at=?,password_hash=NULL WHERE id=?",
+                (now(), key),
+            )
+            c.execute("DELETE FROM sessions WHERE user_id=?", (key,))
+            c.execute("DELETE FROM magic WHERE user_id=?", (key,))
+            c.execute(
+                "UPDATE jobs SET status='CANCELED',cancel=1,ended=? WHERE user_id=? AND status='QUEUED'",
+                (now(), key),
+            )
+            c.execute(
+                "UPDATE jobs SET cancel=1 WHERE user_id=? AND status IN ('STARTING','RUNNING')",
+                (key,),
+            )
+            db.audit(c, u["id"], "delete-participant", {"user": key})
+        return {"ok": True, "history_preserved": True}
+
+    @app.post("/api/admin/users/{key}/password")
+    def issue_password(key: str, body: IssuePassword, u=Depends(admin)):
+        password = secrets.token_urlsafe(18)
+        password_hash = hash_password(password)
+        with db.tx() as c:
+            target = c.execute(
+                "SELECT * FROM users WHERE id=? AND approved=1 AND deleted_at IS NULL",
+                (key,),
+            ).fetchone()
+            if not target:
+                raise HTTPException(404, "Approved participant not found")
+            if target["role"] != "participant":
+                raise HTTPException(
+                    409,
+                    "Use the administrator password reset command for admin accounts",
+                )
+            c.execute(
+                "UPDATE users SET password_hash=?,credential_email_at=NULL WHERE id=?",
+                (password_hash, key),
+            )
+            c.execute("DELETE FROM sessions WHERE user_id=?", (key,))
+            c.execute("DELETE FROM magic WHERE user_id=?", (key,))
+            db.audit(
+                c,
+                u["id"],
+                "issue-participant-password",
+                {"user": key, "email_requested": body.send_email},
+            )
+        delivery = "not_requested"
+        if body.send_email:
+            try:
+                delivery = mailer.send(
+                    target["email"],
+                    "Your Robot Training Hub account",
+                    f"Your workshop account is ready.\n\nSign in: {cfg.public_url}/login\nEmail: {target['email']}\nPassword: {password}\n\nKeep this password private. This replaces any previous workshop password.",
+                )
+            except Exception:
+                delivery = "failed"
+                log.error("Participant credential email was not confirmed by SMTP")
+            if delivery == "sent":
+                with db.tx() as c:
+                    c.execute(
+                        "UPDATE users SET credential_email_at=? WHERE id=? AND password_hash=? AND deleted_at IS NULL",
+                        (now(), key, password_hash),
+                    )
+        with db.tx() as c:
+            db.audit(
+                c,
+                u["id"],
+                "participant-password-delivery",
+                {"user": key, "status": delivery},
+            )
+        return {
+            "email": target["email"],
+            "password": password,
+            "delivery": delivery,
+            "url": cfg.public_url + "/login",
+        }
+
+    @app.get("/api/admin/email")
+    def email_status(u=Depends(admin)):
+        return mailer.status()
+
+    @app.put("/api/admin/email")
+    def configure_email(body: EmailSettings, u=Depends(admin)):
+        try:
+            mailer.save(body.model_dump(mode="json"))
+        except Exception:
+            raise HTTPException(
+                502,
+                "SMTP connection or login failed. Check the server, account, and app password.",
+            )
+        with db.tx() as c:
+            db.audit(
+                c,
+                u["id"],
+                "configure-email",
+                {"host": body.host, "sender": str(body.sender)},
+            )
+        return mailer.status()
+
+    @app.post("/api/admin/email/test")
+    def test_email(u=Depends(admin)):
+        try:
+            delivery = mailer.send(
+                u["email"],
+                "Robot Training Hub email test",
+                "Email delivery from Robot Training Hub is working.\n" + cfg.public_url,
+            )
+        except Exception:
+            raise HTTPException(
+                502, "The mail server did not confirm sending the test email."
+            )
+        return {"delivery": delivery, "recipient": u["email"]}
 
     @app.get("/api/admin/settings")
     def settings(u=Depends(admin)):
@@ -1032,11 +1154,15 @@ def create_app(cfg=None):
         with db.tx() as c:
             for email in dict.fromkeys(str(e).lower() for e in body.emails):
                 c.execute(
-                    "INSERT INTO users(id,email,approved,env_limit,created) VALUES(?,?,1,?,?) ON CONFLICT(email) DO UPDATE SET approved=1,env_limit=excluded.env_limit",
+                    "INSERT INTO users(id,email,approved,env_limit,created) VALUES(?,?,1,?,?) ON CONFLICT(email) DO UPDATE SET approved=1,deleted_at=NULL,env_limit=excluded.env_limit",
                     (uid(), email, body.env_limit, now()),
                 )
             db.audit(c, u["id"], "approve-participants", {"count": len(body.emails)})
-        return {"ok": True, "count": len(set(body.emails))}
+            user_ids = [
+                c.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()[0]
+                for email in dict.fromkeys(str(e).lower() for e in body.emails)
+            ]
+        return {"ok": True, "count": len(user_ids), "user_ids": user_ids}
 
     @app.post("/api/admin/users/{key}/invite")
     def invite(key: str, u=Depends(admin)):
