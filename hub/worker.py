@@ -23,6 +23,35 @@ from .scheduler import minimum_free_mb
 log = logging.getLogger("worker")
 
 
+def publication_artifacts(output):
+    """Include upstream ONNX exports alongside configuration and recent checkpoints."""
+    output = Path(output).resolve()
+    files = [
+        p
+        for p in output.rglob("*")
+        if p.is_file() and not p.is_symlink() and p.resolve().is_relative_to(output)
+    ]
+    artifacts = [
+        p
+        for p in files
+        if p.suffix in {".yaml", ".yml", ".json", ".onnx"}
+        and ("motion" not in p.relative_to(output).parts or p.name == "manifest.json")
+    ]
+    if any(
+        p.suffix == ".onnx" and "policies" in p.relative_to(output).parts
+        for p in artifacts
+    ):
+        artifacts = [
+            p
+            for p in artifacts
+            if p.suffix != ".onnx" or "policies" in p.relative_to(output).parts
+        ]
+    checkpoints = sorted(
+        (p for p in files if p.suffix == ".pt"), key=lambda p: p.stat().st_mtime
+    )[-3:]
+    return sorted(artifacts) + checkpoints
+
+
 class Worker:
     def __init__(
         self,
@@ -505,18 +534,7 @@ class Worker:
             verify(source, assignment["snapshot"])
             if not self.mock:
                 self.sync_events(key, lease, output, event_offsets, final=True)
-            artifacts = []
-            for pattern in ("*.yaml", "*.yml", "*.json"):
-                artifacts.extend(
-                    p
-                    for p in output.rglob(pattern)
-                    if "motion" not in p.relative_to(output).parts
-                    or p.name == "manifest.json"
-                )
-            checkpoints = sorted(output.rglob("*.pt"), key=lambda p: p.stat().st_mtime)[
-                -3:
-            ]
-            for path in artifacts + checkpoints:
+            for path in publication_artifacts(output):
                 self.upload_retry(key, lease, path, str(path.relative_to(output)))
             status = (
                 "FAILED"

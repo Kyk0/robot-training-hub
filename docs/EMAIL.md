@@ -7,7 +7,7 @@ For a Gmail sender, enter `smtp.gmail.com`, STARTTLS / 587 (or TLS / 465), your 
 1. Click **Verify & save email account**. This checks the encrypted connection and account login before saving.
 2. Click **Send test email to me** and check your inbox/spam folder. The app reports mail-server acceptance, not proof of inbox delivery.
 3. Under **Participants**, paste attendee emails, choose 1024 / 2048 / 4096 as their maximum, and use **Add & email passwords**. The add form generates passwords for the supplied accounts, including resetting existing accounts if they are supplied again.
-4. The admin can see and copy newly generated passwords in **Generated passwords**. Dismissing or leaving the page clears that display. Password hashes are saved; the app cannot reveal an older saved password. Use **Reset & email password** to issue a new one.
+4. The admin can see and copy newly generated passwords in **Generated passwords**. Click **Send this password** to email that exact password without resetting it or revoking the participant's current session. Dismissing or leaving the page clears that display. Password hashes are saved; the app cannot reveal an older saved password. Use **Reset & email password** to issue a new one.
 5. If delivery fails, the result says so and the generated password remains visible for copying. Resetting revokes the participant's previous sessions and outstanding sign-in links. No failed send is presented as successful email.
 
 Without a configured sender, **Add & generate passwords** and **Generate password** work for private manual distribution. Email buttons remain disabled. Development outbox results are explicitly labeled and do not count as sent mail.

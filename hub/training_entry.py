@@ -32,7 +32,7 @@ def main():
     cfg.agent.experiment_name = "workshop"
     cfg.agent.run_name = spec["run_id"]
     cfg.agent.logger = "tensorboard"
-    cfg.agent.save_interval = min(100, spec["iterations"])
+    cfg.agent.save_interval = spec.get("policy_interval", 50)
     if spec.get("learning_rate") is not None:
         cfg.agent.algorithm.learning_rate = spec["learning_rate"]
     for key, value in spec.get("rewards", {}).items():
@@ -114,6 +114,14 @@ def main():
         cfg, registry_name=None, log_root=str(OUTPUT / "training"), gpu_ids=[0]
     )
     train._patch_dump_yaml()
+    from hub_policy import versioned_runner
+
+    original_runner = mjtrain.load_runner_cls(spec["task"])
+    workshop_runner = versioned_runner(original_runner, OUTPUT, spec)
+    original_lookup = mjtrain.load_runner_cls
+    mjtrain.load_runner_cls = lambda task: (
+        workshop_runner if task == spec["task"] else original_lookup(task)
+    )
     mjtrain.launch_training(task_id=spec["task"], args=cfg)
 
 

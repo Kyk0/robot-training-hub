@@ -414,6 +414,10 @@ function Shell() {
             <Plus />
             New training
           </NavLink>
+          <NavLink to="/policies">
+            <Download />
+            Policies
+          </NavLink>
           <NavLink to="/runs" end>
             <Activity />
             My runs
@@ -488,6 +492,7 @@ function Shell() {
             <Route path="/motions" element={<Motions />} />
             <Route path="/train/new" element={<NewTraining />} />
             <Route path="/runs" element={<Runs />} />
+            <Route path="/policies" element={<Policies />} />
             <Route path="/runs/:id" element={<RunPage />} />
             <Route path="/runs/:id/code" element={<Repository />} />
             <Route path="/code" element={<Repository />} />
@@ -952,7 +957,8 @@ function NewTraining() {
       new URLSearchParams(location.search).get("motion") || "",
     ),
     [envs, setEnvs] = useState(2048),
-    [iterations, setIterations] = useState(1000);
+    [iterations, setIterations] = useState(1000),
+    [policyInterval, setPolicyInterval] = useState(50);
   useEffect(() => {
     if (o) {
       const available = o.presets.filter(
@@ -985,6 +991,7 @@ function NewTraining() {
                 motion_id: motion,
                 num_envs: envs,
                 iterations,
+                policy_interval: policyInterval,
               });
               nav("/runs/" + r.id);
             }, "Training queued");
@@ -1077,6 +1084,23 @@ function NewTraining() {
               max={o.max_iterations}
               onChange={setIterations}
             />
+            <label>
+              Policy export interval
+              <select
+                value={policyInterval}
+                onChange={(e) => setPolicyInterval(Number(e.target.value))}
+              >
+                {[50, 100, 200].map((n) => (
+                  <option key={n} value={n}>
+                    Every {n} learning iterations
+                  </option>
+                ))}
+              </select>
+              <small>
+                The latest 10 policy versions are retained. Initial and final
+                saves are included.
+              </small>
+            </label>
             <div className="form-submit">
               <span>One outstanding run per participant.</span>
               <Button type="submit" disabled={action.busy || !motion || !envs}>
@@ -1354,8 +1378,15 @@ function RunPage() {
       {tab === "results" && (
         <section className="panel">
           <div className="section-title">
-            <h2>Checkpoints and run files</h2>
+            <h2>Policies, checkpoints and run files</h2>
+            <Link className="button secondary" to="/policies">
+              Open policy list
+            </Link>
           </div>
+          <p className="details">
+            ONNX files are exported inference policies. PT files are training
+            checkpoints. Configuration files record how the run was trained.
+          </p>
           {r.artifacts?.length ? (
             <div className="artifact-list">
               {r.artifacts.map((a: any) => (
@@ -1378,10 +1409,118 @@ function RunPage() {
             </div>
           ) : (
             <Empty>
-              Checkpoints and configuration files are uploaded when training
-              finishes.
+              Policies, checkpoints and configuration files are uploaded when
+              training finishes. ONNX export warnings appear in the training
+              log.
             </Empty>
           )}
+        </section>
+      )}
+    </>
+  );
+}
+
+function Policies() {
+  const { data, error } = usePoll<any[]>(() => api("/policies"));
+  const [search, setSearch] = useState("");
+  const { user } = useContext(Auth);
+  return (
+    <>
+      <Head
+        title="Policies"
+        text="Versioned ONNX exports from your training runs. New runs export every 50 learning iterations by default and retain the latest 10 versions."
+      />
+      <ErrorBox error={error} />
+      <section className="panel details">
+        <label>
+          Find policy
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search experiment, motion or participant"
+          />
+        </label>
+        <p>
+          Export policy downloads a ZIP with policy.onnx, resolved configuration
+          and a provenance manifest. Use ONNX for the model file alone.
+        </p>
+      </section>
+      {!data?.length ? (
+        <Empty>
+          Policies appear here after mjlab produces its first ONNX export.
+          Existing runs keep their original save interval.
+        </Empty>
+      ) : (
+        <section className="panel">
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Experiment / motion</th>
+                  {user?.role === "admin" && <th>Participant</th>}
+                  <th>Checkpoint</th>
+                  <th>Run status</th>
+                  <th>Size</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {data
+                  .filter((p) =>
+                    `${p.name} ${p.motion} ${p.email}`
+                      .toLowerCase()
+                      .includes(search.toLowerCase()),
+                  )
+                  .map((p) => (
+                    <tr key={p.job_id + p.path}>
+                      <td>
+                        <Link to={"/runs/" + p.job_id}>{p.name}</Link>
+                        <small>{p.motion}</small>
+                      </td>
+                      {user?.role === "admin" && <td>{p.email}</td>}
+                      <td>
+                        {p.iteration_index === null
+                          ? "Latest"
+                          : `Index ${p.iteration_index}`}
+                        <small>{p.server_name}</small>
+                      </td>
+                      <td>
+                        <Badge status={p.status} />
+                      </td>
+                      <td>{(p.size / 1048576).toFixed(1)} MiB</td>
+                      <td>
+                        <div className="actions">
+                          <a
+                            className="button small"
+                            href={
+                              "/api/runs/" +
+                              p.job_id +
+                              "/policies/export?path=" +
+                              encodeURIComponent(p.path)
+                            }
+                          >
+                            <Download size={15} />
+                            Export policy
+                          </a>
+                          <a
+                            className="button secondary small"
+                            href={
+                              "/api/runs/" +
+                              p.job_id +
+                              "/artifacts?path=" +
+                              encodeURIComponent(p.path)
+                            }
+                          >
+                            ONNX
+                          </a>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
     </>
@@ -1890,6 +2029,27 @@ function Participants() {
                 >
                   <Copy size={15} />
                   Copy login
+                </Button>
+                <Button
+                  disabled={action.busy}
+                  onClick={() =>
+                    action.run(async () => {
+                      const result = await api(
+                        "/admin/users/" + c.user_id + "/password/email",
+                        "POST",
+                        { password: c.password },
+                      );
+                      setCredentials((previous) =>
+                        previous.map((entry) =>
+                          entry.user_id === c.user_id
+                            ? { ...entry, ...result }
+                            : entry,
+                        ),
+                      );
+                    }, "")
+                  }
+                >
+                  {c.delivery === "sent" ? "Send again" : "Send this password"}
                 </Button>
               </div>
             </div>

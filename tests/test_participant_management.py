@@ -239,3 +239,100 @@ def test_development_mail_is_explicit_and_private(setup):
     file = next((cfg.data / "mail").glob("*.json"))
     assert file.stat().st_mode & 0o777 == 0o600
     assert issued["password"] in json.loads(file.read_text())["content"]
+
+
+def test_email_generated_password_does_not_reset_it_or_revoke_session(
+    setup, monkeypatch
+):
+    app, db, cfg, client = setup
+    admin, alice = client("admin@example.org"), client("alice@example.org")
+    key = alice.get("/api/me").json()["id"]
+    generated = admin.post(
+        "/api/admin/users/" + key + "/password", json={"send_email": False}
+    ).json()
+    assert generated["user_id"] == key
+    visitor = TestClient(app, headers={"X-Hub-Request": "1"})
+    visitor.post(
+        "/api/auth/password",
+        json={"email": generated["email"], "password": generated["password"]},
+    ).raise_for_status()
+    with db.connect() as c:
+        original_hash = c.execute(
+            "SELECT password_hash FROM users WHERE id=?", (key,)
+        ).fetchone()[0]
+    sent = []
+    monkeypatch.setattr(
+        Mailer,
+        "send",
+        lambda self, email, subject, content: sent.append((email, content)) or "sent",
+    )
+    endpoint = "/api/admin/users/" + key + "/password/email"
+    assert (
+        visitor.post(endpoint, json={"password": generated["password"]}).status_code
+        == 403
+    )
+    assert (
+        admin.post(endpoint, json={"password": "not-the-current-password"}).status_code
+        == 409
+    )
+    assert not sent
+    response = admin.post(endpoint, json={"password": generated["password"]})
+    assert response.json()["delivery"] == "sent" and "password" not in response.json()
+    assert sent[0][0] == generated["email"] and generated["password"] in sent[0][1]
+    assert visitor.get("/api/me").status_code == 200
+    with db.connect() as c:
+        assert (
+            c.execute("SELECT password_hash FROM users WHERE id=?", (key,)).fetchone()[
+                0
+            ]
+            == original_hash
+        )
+        assert generated["password"] not in str(
+            [tuple(r) for r in c.execute("SELECT * FROM audit")]
+        )
+    assert (
+        admin.post(
+            endpoint,
+            json={
+                "password": generated["password"],
+                "email": "someone-else@example.org",
+            },
+        ).status_code
+        == 422
+    )
+    admin.post(
+        "/api/admin/users/" + key + "/password", json={"send_email": False}
+    ).raise_for_status()
+    assert (
+        admin.post(endpoint, json={"password": generated["password"]}).status_code
+        == 409
+    )
+
+
+def test_email_failure_keeps_generated_password_usable(setup, monkeypatch):
+    app, db, cfg, client = setup
+    admin, alice = client("admin@example.org"), client("alice@example.org")
+    key = alice.get("/api/me").json()["id"]
+    generated = admin.post(
+        "/api/admin/users/" + key + "/password", json={"send_email": False}
+    ).json()
+
+    def fail(*args, **kwargs):
+        raise OSError("mail unavailable")
+
+    monkeypatch.setattr(Mailer, "send", fail)
+    assert (
+        admin.post(
+            "/api/admin/users/" + key + "/password/email",
+            json={"password": generated["password"]},
+        ).json()["delivery"]
+        == "failed"
+    )
+    visitor = TestClient(app, headers={"X-Hub-Request": "1"})
+    assert (
+        visitor.post(
+            "/api/auth/password",
+            json={"email": generated["email"], "password": generated["password"]},
+        ).status_code
+        == 200
+    )

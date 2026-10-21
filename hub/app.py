@@ -5,6 +5,8 @@ import httpx
 from contextlib import asynccontextmanager
 import ipaddress
 import json
+import io
+import zipfile
 import logging
 import os
 from pathlib import Path
@@ -26,6 +28,7 @@ from .models import (
     Email,
     PasswordLogin,
     IssuePassword,
+    SendPassword,
     EmailSettings,
     AddParticipant,
     ParticipantList,
@@ -50,6 +53,7 @@ from .motions import (
 from .passwords import verify_password, hash_password
 from .tensorboard import TensorBoards
 from .emailer import Mailer
+from .policies import VERSION, obsolete_versions
 
 log = logging.getLogger("hub")
 
@@ -830,11 +834,51 @@ def create_app(cfg=None):
                 {"user": key, "status": delivery},
             )
         return {
+            "user_id": key,
             "email": target["email"],
             "password": password,
             "delivery": delivery,
             "url": cfg.public_url + "/login",
         }
+
+    @app.post("/api/admin/users/{key}/password/email")
+    def email_existing_password(key: str, body: SendPassword, u=Depends(admin)):
+        with db.connect() as c:
+            target = c.execute(
+                "SELECT * FROM users WHERE id=? AND approved=1 AND deleted_at IS NULL AND role='participant'",
+                (key,),
+            ).fetchone()
+        if not target:
+            raise HTTPException(404, "Approved participant not found")
+        if not target["password_hash"] or not verify_password(
+            body.password, target["password_hash"]
+        ):
+            raise HTTPException(
+                409,
+                "That password is no longer current. Generate a new password before emailing it.",
+            )
+        delivery = "failed"
+        try:
+            delivery = mailer.send(
+                target["email"],
+                "Your Robot Training Hub account",
+                f"Your workshop account is ready.\n\nSign in: {cfg.public_url}/login\nEmail: {target['email']}\nPassword: {body.password}\n\nKeep this password private.",
+            )
+        except Exception:
+            log.error("Participant credential email was not confirmed by SMTP")
+        with db.tx() as c:
+            if delivery == "sent":
+                c.execute(
+                    "UPDATE users SET credential_email_at=? WHERE id=? AND password_hash=? AND deleted_at IS NULL",
+                    (now(), key, target["password_hash"]),
+                )
+            db.audit(
+                c,
+                u["id"],
+                "email-existing-participant-password",
+                {"user": key, "status": delivery},
+            )
+        return {"user_id": key, "email": target["email"], "delivery": delivery}
 
     @app.get("/api/admin/email")
     def email_status(u=Depends(admin)):
@@ -1087,9 +1131,12 @@ def create_app(cfg=None):
 
     @app.put("/api/worker/runs/{key}/artifact")
     async def upload(key: str, path: str, request: Request, w=Depends(worker)):
+        versioned_policy = bool(VERSION.fullmatch(path))
         with db.connect() as c:
             r = assigned(c, key, w, request.headers.get("x-job-lease", ""))
-            if r["status"] not in ACTIVE:
+            if r["status"] not in ACTIVE and not (
+                versioned_policy and r["acknowledged"]
+            ):
                 raise HTTPException(409, "Run already finalized")
             used = c.execute(
                 "SELECT COALESCE(sum(size),0) FROM artifacts WHERE job_id=?", (key,)
@@ -1107,13 +1154,13 @@ def create_app(cfg=None):
         target.parent.mkdir(parents=True, exist_ok=True)
         temp = target.with_name(target.name + "." + uid() + ".part")
         size = 0
+        expired = []
         try:
             with temp.open("wb") as f:
                 async for chunk in request.stream():
                     size += len(chunk)
-                    if (
-                        size > cfg.artifact_limit
-                        or used + size > 2 * 1024 * 1024 * 1024
+                    if size > cfg.artifact_limit or (
+                        not versioned_policy and used + size > 2 * 1024 * 1024 * 1024
                     ):
                         raise HTTPException(413, "Artifact quota exceeded")
                     f.write(chunk)
@@ -1121,7 +1168,9 @@ def create_app(cfg=None):
             with db.tx() as c:
                 # Completion is serialized with publication of the artifact index.
                 current = assigned(c, key, w, request.headers.get("x-job-lease", ""))
-                if current["status"] not in ACTIVE:
+                if current["status"] not in ACTIVE and not (
+                    versioned_policy and current["acknowledged"]
+                ):
                     raise HTTPException(409, "Run finalized while uploading")
                 if c.execute(
                     "SELECT 1 FROM artifacts WHERE job_id=? AND path=?", (key, path)
@@ -1133,6 +1182,22 @@ def create_app(cfg=None):
                     if existing != checksum:
                         raise HTTPException(409, "Published artifacts are immutable")
                 else:
+                    expired = []
+                    if versioned_policy:
+                        try:
+                            expired = obsolete_versions(
+                                c.execute(
+                                    "SELECT path FROM artifacts WHERE job_id=?", (key,)
+                                ).fetchall(),
+                                path,
+                            )
+                        except ValueError as exc:
+                            raise HTTPException(409, str(exc))
+                        for old in expired:
+                            c.execute(
+                                "DELETE FROM artifacts WHERE job_id=? AND path=?",
+                                (key, old),
+                            )
                     published = c.execute(
                         "SELECT COALESCE(sum(size),0) FROM artifacts WHERE job_id=?",
                         (key,),
@@ -1145,9 +1210,86 @@ def create_app(cfg=None):
                         "INSERT INTO artifacts VALUES(?,?,?,?)",
                         (key, path, checksum, size),
                     )
+            for old in expired:
+                safe_path(root, old).unlink(missing_ok=True)
         finally:
             temp.unlink(missing_ok=True)
         return {"sha256": checksum, "size": size}
+
+    @app.get("/api/worker/runs/{key}/policy-context")
+    def policy_context(key: str, request: Request, w=Depends(worker)):
+        with db.connect() as c:
+            r = assigned(c, key, w, request.headers.get("x-job-lease", ""))
+            if not r["acknowledged"]:
+                raise HTTPException(409, "Run not claimed")
+            return {
+                "snapshot": r["snapshot"],
+                "spec": unpack(r["spec"]),
+                "status": r["status"],
+            }
+
+    @app.get("/api/policies")
+    def list_policies(u=Depends(user)):
+        with db.connect() as c:
+            rows = c.execute(
+                "SELECT a.*,j.name,j.status,j.spec,j.created,j.iteration,u.email,s.name server_name FROM artifacts a JOIN jobs j ON j.id=a.job_id JOIN users u ON u.id=j.user_id LEFT JOIN servers s ON s.id=j.server_id WHERE a.path LIKE '%.onnx' AND (? OR j.user_id=?) ORDER BY j.created DESC,a.path DESC LIMIT 1000",
+                (u["role"] == "admin", u["id"]),
+            ).fetchall()
+        result = []
+        for row in rows:
+            data = dict(row)
+            spec = unpack(data.pop("spec"))
+            data["motion"] = spec["motion"]["label"]
+            data["policy_interval"] = spec.get("policy_interval", 100)
+            match = VERSION.fullmatch(data["path"])
+            data["iteration_index"] = int(match.group(2)) if match else None
+            result.append(data)
+        return result
+
+    @app.get("/api/runs/{key}/policies/export")
+    def export_policy(key: str, path: str, u=Depends(user)):
+        with db.connect() as c:
+            r = get_job(c, key, u)
+            artifact = c.execute(
+                "SELECT * FROM artifacts WHERE job_id=? AND path=?", (key, path)
+            ).fetchone()
+            configs = c.execute(
+                "SELECT * FROM artifacts WHERE job_id=? AND (path LIKE '%.yaml' OR path LIKE '%.yml')",
+                (key,),
+            ).fetchall()
+        if not artifact or not path.endswith(".onnx"):
+            raise HTTPException(404, "Policy not available")
+        root = cfg.data / "runs" / key / "artifacts"
+        raw = safe_path(root, path).read_bytes()
+        if sha(raw) != artifact["sha256"]:
+            raise HTTPException(409, "Policy checksum mismatch")
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("policy.onnx", raw)
+            archive.writestr(
+                "manifest.json",
+                pack(
+                    {
+                        "run_id": key,
+                        "policy_sha256": artifact["sha256"],
+                        "snapshot_sha256": r["snapshot"],
+                        "configuration": unpack(r["spec"]),
+                        "policy_path": path,
+                    }
+                ),
+            )
+            for item in configs:
+                content = safe_path(root, item["path"]).read_bytes()
+                if sha(content) != item["sha256"]:
+                    raise HTTPException(409, "Configuration checksum mismatch")
+                archive.writestr("config/" + item["path"], content)
+        return Response(
+            buffer.getvalue(),
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="policy-{key[:8]}.zip"'
+            },
+        )
 
     @app.post("/api/admin/users/bulk")
     def bulk_users(body: ParticipantList, u=Depends(admin)):

@@ -10,6 +10,8 @@ Sign in as **admin@example.edu** with the password saved privately in `data/work
 
 Environment choices are **1024 / 2048 / 4096**, default **2048**, with an **80% GPU memory ceiling**, **10 running jobs total**, and the stricter H100 memory reserve. Existing workstation sites are preserved. MPS remains off.
 
+Policies are listed under **Policies**; new runs export every **50 learning iterations** by default and retain ten versions. **Export policy** downloads the ONNX and configuration bundle. See [policy exports](docs/POLICIES.md).
+
 See [deployment status and operations](docs/CURRENT_STATUS.md), [real workshop guide](docs/REAL_WORKSHOP.md), and [validation](docs/VALIDATION.md). Private source: [Kyk0/robot-training-hub](https://github.com/Kyk0/robot-training-hub). The Mac data directory is an archive; the live database is on the workstation. The historical local/demo setup below remains available for isolated testing.
 
 ## Quick local demonstration

@@ -51,6 +51,7 @@ class NewJob(Strict):
     motion_id: str = Field(max_length=100)
     num_envs: EnvironmentCount
     iterations: int = Field(ge=1, le=100000)
+    policy_interval: Literal[50, 100, 200] = 50
     seed: int = Field(default=42, ge=0, le=2147483647)
     learning_rate: float | None = None
     rewards: dict[str, float] = Field(default_factory=dict, max_length=8)
@@ -64,6 +65,10 @@ class UserEdit(Strict):
 
 class IssuePassword(Strict):
     send_email: bool = True
+
+
+class SendPassword(Strict):
+    password: str = Field(min_length=12, max_length=256)
 
 
 class EmailSettings(Strict):
