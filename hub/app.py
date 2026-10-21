@@ -1,4 +1,7 @@
 import asyncio
+import fcntl
+import re
+import httpx
 from contextlib import asynccontextmanager
 import io
 import ipaddress
@@ -13,12 +16,20 @@ import time
 from email.message import EmailMessage
 from urllib.parse import urlparse
 from fastapi import FastAPI, Depends, HTTPException, Request, Response
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    StreamingResponse,
+    RedirectResponse,
+    JSONResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from .config import Config, DEFAULT_SERVER, ROOT
 from .db import DB, ACTIVE, digest, now, pack, uid, unpack
 from .models import (
     Email,
+    PasswordLogin,
+    AddParticipant,
+    ParticipantList,
     NewJob,
     UserEdit,
     Settings,
@@ -30,12 +41,23 @@ from .models import (
 from .scheduler import schedule, estimate, public_job
 from .snapshots import create_snapshot, safe_path, verify, zip_tree, sha
 
+from .motions import (
+    MAX_BYTES,
+    store_motion,
+    visible_motions,
+    public_motion,
+    robot_model,
+)
+from .passwords import verify_password, hash_password
+from .tensorboard import TensorBoards
+
 log = logging.getLogger("hub")
 
 
 def create_app(cfg=None):
     cfg = cfg or Config()
     db = DB(cfg)
+    tensorboards = TensorBoards(cfg)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -50,6 +72,7 @@ def create_app(cfg=None):
         task = asyncio.create_task(loop())
         yield
         task.cancel()
+        tensorboards.close()
         try:
             await task
         except asyncio.CancelledError:
@@ -83,6 +106,7 @@ def create_app(cfg=None):
                     return Response("Origin refused", status_code=403)
             if (
                 not request.url.path.startswith("/api/worker/")
+                and "/tensorboard/" not in request.url.path
                 and request.headers.get("x-hub-request") != "1"
             ):
                 return Response("X-Hub-Request required", status_code=403)
@@ -91,6 +115,11 @@ def create_app(cfg=None):
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Cache-Control"] = "no-store"
+        if "/tensorboard/" in request.url.path:
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self' blob: data:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'"
+            )
+            return response
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'"
         )
@@ -105,7 +134,9 @@ def create_app(cfg=None):
             ).fetchone()
         if not row or not row["verified"] or not row["approved"]:
             raise HTTPException(401, "Login required")
-        return dict(row)
+        result = dict(row)
+        result.pop("password_hash", None)
+        return result
 
     def admin(u=Depends(user)):
         if u["role"] != "admin":
@@ -226,6 +257,52 @@ def create_app(cfg=None):
         )
         return {"role": role, "redirect": "/admin" if role == "admin" else "/dashboard"}
 
+    @app.post("/api/auth/password")
+    def password_login(body: PasswordLogin, request: Request, response: Response):
+        email = str(body.email).lower()
+        key = (
+            "password:"
+            + email
+            + ":"
+            + (request.client.host if request.client else "unknown")
+        )
+        with db.tx() as c:
+            limit = c.execute(
+                "SELECT * FROM rate_limits WHERE key=?", (key,)
+            ).fetchone()
+            if limit and limit["at"] > now() - 900 and limit["count"] >= 8:
+                raise HTTPException(429, "Too many attempts. Try again in 15 minutes.")
+            c.execute(
+                "INSERT INTO rate_limits VALUES(?,?,1) ON CONFLICT(key) DO UPDATE SET count=CASE WHEN at<? THEN 1 ELSE count+1 END,at=CASE WHEN at<? THEN excluded.at ELSE at END",
+                (key, now(), now() - 900, now() - 900),
+            )
+            account = c.execute(
+                "SELECT * FROM users WHERE email=? AND approved=1", (email,)
+            ).fetchone()
+        if (
+            not account
+            or not account["password_hash"]
+            or not verify_password(body.password, account["password_hash"])
+        ):
+            raise HTTPException(401, "Email or password is incorrect")
+        token = secrets.token_urlsafe(32)
+        with db.tx() as c:
+            c.execute(
+                "INSERT INTO sessions VALUES(?,?,?)",
+                (digest(token), account["id"], now() + cfg.session_seconds),
+            )
+            c.execute("UPDATE users SET verified=1 WHERE id=?", (account["id"],))
+            c.execute("DELETE FROM rate_limits WHERE key=?", (key,))
+        response.set_cookie(
+            "hub_session",
+            token,
+            httponly=True,
+            secure=cfg.public_url.startswith("https://"),
+            samesite="strict",
+            max_age=cfg.session_seconds,
+        )
+        return {"redirect": "/admin" if account["role"] == "admin" else "/dashboard"}
+
     @app.post("/api/auth/register")
     def register(body: Email):
         email = str(body.email).lower()
@@ -329,7 +406,13 @@ def create_app(cfg=None):
     def options(u=Depends(user)):
         with db.connect() as c:
             s = db.settings(c)
-        return {**s, "user_env_limit": u["env_limit"]}
+            uploaded = visible_motions(c, u, approved_only=True)
+        return {
+            **s,
+            "motions": s["motions"] + uploaded,
+            "user_env_limit": u["env_limit"],
+            "repository_url": "https://github.com/IntelligentRoboticsLab/booster_mjlab",
+        }
 
     @app.get("/api/runs")
     def runs(status: str | None = None, q: str = "", u=Depends(user)):
@@ -368,7 +451,8 @@ def create_app(cfg=None):
                 raise HTTPException(
                     422, "Training size exceeds current workshop limits"
                 )
-            motion = next((m for m in s["motions"] if m["id"] == body.motion_id), None)
+            choices = s["motions"] + visible_motions(c, u, approved_only=True)
+            motion = next((m for m in choices if m["id"] == body.motion_id), None)
             if not motion:
                 raise HTTPException(422, "Select an approved motion")
             if (
@@ -443,6 +527,11 @@ def create_app(cfg=None):
                     (key,),
                 )
             ][::-1]
+            data["tensorboard_available"] = (
+                cfg.data / "tensorboard" / key
+            ).exists() and any(
+                (cfg.data / "tensorboard" / key).glob("events.out.tfevents*")
+            )
             data["artifacts"] = [
                 dict(a)
                 for a in c.execute(
@@ -629,15 +718,23 @@ def create_app(cfg=None):
     @app.get("/api/admin/users")
     def users(u=Depends(admin)):
         with db.connect() as c:
-            return [dict(r) for r in c.execute("SELECT * FROM users ORDER BY created")]
+            return [
+                {k: r[k] for k in r.keys() if k != "password_hash"}
+                for r in c.execute("SELECT * FROM users ORDER BY created")
+            ]
 
     @app.post("/api/admin/users")
-    def allow(body: Email, u=Depends(admin)):
+    def allow(body: AddParticipant, u=Depends(admin)):
         with db.tx() as c:
             c.execute(
                 "INSERT INTO users(id,email,approved,created) VALUES(?,?,1,?) ON CONFLICT(email) DO UPDATE SET approved=1",
                 (uid(), str(body.email).lower(), now()),
             )
+            if body.env_limit is not None:
+                c.execute(
+                    "UPDATE users SET env_limit=? WHERE email=?",
+                    (body.env_limit, str(body.email).lower()),
+                )
             db.audit(c, u["id"], "allow", {"email": str(body.email)})
         return {"ok": True}
 
@@ -929,6 +1026,211 @@ def create_app(cfg=None):
         finally:
             temp.unlink(missing_ok=True)
         return {"sha256": checksum, "size": size}
+
+    @app.post("/api/admin/users/bulk")
+    def bulk_users(body: ParticipantList, u=Depends(admin)):
+        with db.tx() as c:
+            for email in dict.fromkeys(str(e).lower() for e in body.emails):
+                c.execute(
+                    "INSERT INTO users(id,email,approved,env_limit,created) VALUES(?,?,1,?,?) ON CONFLICT(email) DO UPDATE SET approved=1,env_limit=excluded.env_limit",
+                    (uid(), email, body.env_limit, now()),
+                )
+            db.audit(c, u["id"], "approve-participants", {"count": len(body.emails)})
+        return {"ok": True, "count": len(set(body.emails))}
+
+    @app.post("/api/admin/users/{key}/invite")
+    def invite(key: str, u=Depends(admin)):
+        token = secrets.token_urlsafe(32)
+        with db.tx() as c:
+            account = c.execute(
+                "SELECT * FROM users WHERE id=? AND approved=1", (key,)
+            ).fetchone()
+            if not account:
+                raise HTTPException(404, "Approved account not found")
+            c.execute(
+                "INSERT INTO magic VALUES(?,?,?)", (digest(token), key, now() + 900)
+            )
+        return {"url": cfg.public_url + "/login#token=" + token, "expires_in": 900}
+
+    def get_motion(c, key, u):
+        row = c.execute("SELECT * FROM motions WHERE id=?", (key,)).fetchone()
+        if not row or not (
+            u["role"] == "admin" or row["user_id"] == u["id"] or row["shared"]
+        ):
+            raise HTTPException(404, "Motion not found")
+        return row
+
+    @app.get("/api/motions")
+    def motions(u=Depends(user)):
+        with db.connect() as c:
+            return visible_motions(c, u)
+
+    @app.post("/api/motions", status_code=201)
+    async def upload_motion(
+        request: Request,
+        label: str = "Uploaded motion",
+        fps: float = 50,
+        shared: bool = False,
+        u=Depends(user),
+    ):
+        data = bytearray()
+        async for chunk in request.stream():
+            data.extend(chunk)
+            if len(data) > MAX_BYTES:
+                raise HTTPException(413, "CSV must be smaller than 20 MiB")
+        try:
+            return await asyncio.to_thread(
+                store_motion, db, u, bytes(data), label, fps, shared
+            )
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+
+    @app.get("/api/motions/{key}/preview")
+    def preview_motion(key: str, u=Depends(user)):
+        with db.connect() as c:
+            row = get_motion(c, key, u)
+        return FileResponse(
+            cfg.data / "motions" / row["id"] / "preview.json",
+            media_type="application/json",
+        )
+
+    @app.get("/api/motions/{key}/download")
+    def download_motion(key: str, u=Depends(user)):
+        with db.connect() as c:
+            row = get_motion(c, key, u)
+        return FileResponse(
+            cfg.data / "motions" / row["id"] / "input.csv",
+            filename=row["label"] + ".csv",
+            media_type="text/csv",
+        )
+
+    @app.post("/api/admin/motions/{key}/approve")
+    def approve_motion(key: str, body: dict, u=Depends(admin)):
+        with db.tx() as c:
+            get_motion(c, key, u)
+            c.execute(
+                "UPDATE motions SET approved=?,shared=? WHERE id=?",
+                (bool(body.get("approved", True)), bool(body.get("shared", True)), key),
+            )
+        return {"ok": True}
+
+    @app.get("/api/robot/model")
+    def robot(u=Depends(user)):
+        return robot_model(cfg)
+
+    @app.get("/api/robot/meshes/{name}")
+    def mesh(name: str, u=Depends(user)):
+        model = robot_model(cfg)
+        if name not in {v["file"] for v in model["meshes"].values()}:
+            raise HTTPException(404, "Mesh not found")
+        return FileResponse(
+            cfg.base_repo / "src/booster_mjlab/robots/booster_k1/xmls/meshes" / name,
+            media_type="application/octet-stream",
+        )
+
+    @app.get("/api/worker/runs/{key}/motion")
+    def assigned_motion(key: str, w=Depends(worker)):
+        with db.connect() as c:
+            r = assigned(c, key, w)
+        motion = unpack(r["spec"])["motion"]
+        if not motion["artifact"].startswith("upload:"):
+            raise HTTPException(404, "This run has no uploaded CSV")
+        identifier = motion["artifact"].split(":")[1]
+        if not re.fullmatch("[a-f0-9]{32}", identifier):
+            raise HTTPException(404, "Motion not found")
+        return FileResponse(
+            cfg.data / "motions" / identifier / "input.csv", media_type="text/csv"
+        )
+
+    @app.put("/api/worker/runs/{key}/events")
+    async def events(
+        key: str, name: str, offset: int, request: Request, w=Depends(worker)
+    ):
+        with db.connect() as c:
+            r = assigned(c, key, w, request.headers.get("x-job-lease", ""))
+        if r["status"] not in ACTIVE:
+            raise HTTPException(409, "Run is already finalized")
+        if (
+            not re.fullmatch(r"events\.out\.tfevents[.a-zA-Z0-9_-]{1,220}", name)
+            or offset < 0
+        ):
+            raise HTTPException(422, "Invalid TensorBoard event file")
+        folder = cfg.data / "tensorboard" / r["id"]
+        folder.mkdir(parents=True, exist_ok=True)
+        file = folder / name
+        size = file.stat().st_size if file.exists() else 0
+        payload = bytearray()
+        async for chunk in request.stream():
+            payload.extend(chunk)
+            if (
+                len(payload) > 2 * 1024 * 1024
+                or offset + len(payload) > 128 * 1024 * 1024
+            ):
+                raise HTTPException(413, "TensorBoard upload quota exceeded")
+        with file.open("ab") as target:
+            fcntl.flock(target, fcntl.LOCK_EX)
+            size = target.seek(0, 2)
+            if offset != size:
+                return JSONResponse({"offset": size}, status_code=409)
+            target.write(payload)
+            target.flush()
+        return {"offset": file.stat().st_size}
+
+    @app.get("/api/runs/{key}/tensorboard")
+    def tensorboard_redirect(key: str, u=Depends(user)):
+        with db.connect() as c:
+            get_job(c, key, u)
+        return RedirectResponse(f"/api/runs/{key}/tensorboard/")
+
+    @app.api_route("/api/runs/{key}/tensorboard/{path:path}", methods=["GET", "POST"])
+    async def tensorboard_proxy(key: str, path: str, request: Request, u=Depends(user)):
+        with db.connect() as c:
+            r = get_job(c, key, u)
+        try:
+            base = await asyncio.to_thread(tensorboards.url, r["id"])
+        except ValueError as e:
+            raise HTTPException(425, str(e))
+        except RuntimeError as e:
+            raise HTTPException(503, str(e))
+        target = base + f"/api/runs/{key}/tensorboard/" + path
+        if request.url.query:
+            target += "?" + request.url.query
+        payload = await request.body()
+        if len(payload) > 2 * 1024 * 1024:
+            raise HTTPException(413, "Request is too large")
+        async with httpx.AsyncClient(timeout=20) as client:
+            for attempt in range(30):
+                try:
+                    upstream = await client.request(
+                        request.method,
+                        target,
+                        content=payload,
+                        headers={
+                            "Content-Type": request.headers.get(
+                                "content-type", "application/octet-stream"
+                            )
+                        },
+                    )
+                    headers = {
+                        k: v
+                        for k, v in upstream.headers.items()
+                        if k.lower()
+                        not in {
+                            "content-length",
+                            "content-encoding",
+                            "connection",
+                            "transfer-encoding",
+                            "set-cookie",
+                        }
+                    }
+                    return Response(
+                        upstream.content,
+                        status_code=upstream.status_code,
+                        headers=headers,
+                    )
+                except httpx.ConnectError:
+                    await asyncio.sleep(0.1)
+        raise HTTPException(503, "TensorBoard is starting. Refresh in a moment.")
 
     dist = ROOT / "frontend/dist"
     if dist.exists():

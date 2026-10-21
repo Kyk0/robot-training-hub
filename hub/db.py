@@ -57,6 +57,10 @@ CREATE TABLE IF NOT EXISTS metrics (
 CREATE TABLE IF NOT EXISTS artifacts (
  job_id TEXT NOT NULL, path TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL,
  PRIMARY KEY(job_id,path));
+CREATE TABLE IF NOT EXISTS motions (
+ id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),label TEXT NOT NULL,
+ filename TEXT NOT NULL,fps REAL NOT NULL,frames INTEGER NOT NULL,duration REAL NOT NULL,
+ sha256 TEXT NOT NULL,approved INTEGER NOT NULL DEFAULT 0,shared INTEGER NOT NULL DEFAULT 0,created REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS audit (
  id INTEGER PRIMARY KEY, at REAL NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY, at REAL NOT NULL, count INTEGER NOT NULL);
@@ -69,6 +73,20 @@ class DB:
         cfg.data.mkdir(parents=True, exist_ok=True, mode=0o700)
         with self.connect() as c:
             c.executescript(SCHEMA)
+            columns = {row[1] for row in c.execute("PRAGMA table_info(users)")}
+            if "password_hash" not in columns:
+                c.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+            current = (
+                unpack(c.execute("SELECT value FROM settings WHERE id=1").fetchone()[0])
+                if c.execute("SELECT 1 FROM settings WHERE id=1").fetchone()
+                else {}
+            )
+            for key in ("max_running_jobs",):
+                if key not in current and current:
+                    current[key] = DEFAULT_SETTINGS[key]
+                    c.execute(
+                        "UPDATE settings SET value=? WHERE id=1", (pack(current),)
+                    )
             c.execute(
                 "INSERT OR IGNORE INTO settings VALUES (1,?)", (pack(DEFAULT_SETTINGS),)
             )

@@ -1,6 +1,7 @@
 """Outbound-only worker. No shell/RCE API. One authenticated coordinator per service."""
 
 import argparse
+import hashlib
 from concurrent.futures import ThreadPoolExecutor
 import json
 import logging
@@ -171,6 +172,39 @@ class Worker:
             self.stop.wait(3)
         raise RuntimeError("Upload pending at shutdown")
 
+    def sync_events(self, key, lease, output, offsets, final=False):
+        for event in output.rglob("events.out.tfevents*"):
+            if not event.is_file():
+                continue
+            relative = str(event.relative_to(output))
+            name = (
+                "events.out.tfevents."
+                + hashlib.sha256(relative.encode()).hexdigest()[:12]
+            )
+            while True:
+                offset = offsets.get(relative, 0)
+                with event.open("rb") as stream:
+                    stream.seek(offset)
+                    payload = stream.read(1024 * 1024)
+                if not payload:
+                    break
+                try:
+                    response = self.client.put(
+                        f"/api/worker/runs/{key}/events",
+                        params={"name": name, "offset": offset},
+                        headers={"X-Job-Lease": lease},
+                        content=payload,
+                    )
+                    if response.status_code in (200, 409):
+                        offsets[relative] = response.json()["offset"]
+                    else:
+                        response.raise_for_status()
+                except httpx.HTTPError:
+                    log.warning("TensorBoard sync deferred for %s", key)
+                    break
+                if not final:
+                    break
+
     def memory(self, pid):
         if self.mock:
             return 0
@@ -248,6 +282,16 @@ class Worker:
             response.raise_for_status()
             source = directory / "source"
             extract_snapshot(response.content, source, assignment["snapshot"])
+            if assignment["spec"]["motion"]["artifact"].startswith("upload:"):
+                motion = self.client.get(f"/api/worker/runs/{key}/motion")
+                motion.raise_for_status()
+                if (
+                    hashlib.sha256(motion.content).hexdigest()
+                    != assignment["spec"]["motion"]["sha256"]
+                ):
+                    raise ValueError("CSV motion checksum mismatch")
+                (output / "motion").mkdir(exist_ok=True)
+                (output / "motion/input.csv").write_bytes(motion.content)
             cfg = assignment["config"]
             inv = self.inventory()
             if not self.mock:
@@ -352,6 +396,8 @@ class Worker:
                 thread = threading.Thread(target=reader, daemon=True)
                 thread.start()
                 metrics = {}
+                event_offsets = {}
+                last_event_sync = 0
                 pending = ""
                 last = 0
                 cancel_at = None
@@ -417,6 +463,9 @@ class Worker:
                             ):
                                 resource_error = "GPU free memory fell below the configured reservation; this workshop job was stopped"
                                 state["cancel"].set()
+                            if time.monotonic() - last_event_sync > 10:
+                                self.sync_events(key, lease, output, event_offsets)
+                                last_event_sync = time.monotonic()
                             step, values = self.tensorboard(output)
                             iteration = max(iteration, step)
                             metrics.update(values)
@@ -455,12 +504,15 @@ class Worker:
                         },
                     )
             verify(source, assignment["snapshot"])
+            if not self.mock:
+                self.sync_events(key, lease, output, event_offsets, final=True)
             artifacts = []
             for pattern in ("*.yaml", "*.yml", "*.json"):
                 artifacts.extend(
                     p
                     for p in output.rglob(pattern)
                     if "motion" not in p.relative_to(output).parts
+                    or p.name == "manifest.json"
                 )
             checkpoints = sorted(output.rglob("*.pt"), key=lambda p: p.stat().st_mtime)[
                 -3:

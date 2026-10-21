@@ -25,6 +25,11 @@ def schedule(db):
             (now(),),
         ).fetchall()
         for job in jobs:
+            running = c.execute(
+                "SELECT count(*) FROM jobs WHERE status IN ('STARTING','RUNNING')"
+            ).fetchone()[0]
+            if running >= settings.get("max_running_jobs", 10):
+                break
             spec = unpack(job["spec"])
             candidates = []
             for server in servers:

@@ -1,9 +1,9 @@
 import React, {
   useState,
   useEffect,
-  useCallback,
   createContext,
   useContext,
+  useCallback,
 } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -13,19 +13,17 @@ import {
   NavLink,
   Link,
   Navigate,
-  useNavigate,
   useParams,
-  useLocation,
+  useNavigate,
 } from "react-router-dom";
 import {
   Activity,
   ArrowRight,
   ArrowUpRight,
-  BookOpen,
   Check,
   ChevronRight,
+  Clock,
   Code2,
-  Copy,
   Cpu,
   Download,
   FlaskConical,
@@ -40,19 +38,17 @@ import {
   Server,
   Settings2,
   ShieldCheck,
-  Terminal,
   Users,
   X,
-  AlertCircle,
-  Clock,
-  Box,
-  RefreshCw,
-  Zap,
+  Upload,
+  ExternalLink,
+  Copy,
 } from "lucide-react";
-import hljs from "highlight.js/lib/common";
 import { api, User, Run, active, date, duration } from "./api";
+import MotionViewer from "./MotionViewer";
 import "./style.css";
 
+const REPO = "https://github.com/IntelligentRoboticsLab/booster_mjlab";
 const Auth = createContext<{ user: User | null; reload: () => Promise<void> }>({
   user: null,
   reload: async () => {},
@@ -66,42 +62,51 @@ function usePoll<T>(
   const [data, setData] = useState<T>();
   const [error, setError] = useState("");
   useEffect(() => {
-    let live = true;
+    let alive = true;
     const update = async () => {
       try {
         const result = await fn();
-        if (live) {
+        if (alive) {
           setData(result);
           setError("");
         }
       } catch (e) {
-        if (live) setError(String((e as Error).message));
+        if (alive) setError((e as Error).message);
       }
     };
     update();
-    const t = setInterval(update, interval);
+    const timer = setInterval(update, interval);
     return () => {
-      live = false;
-      clearInterval(t);
+      alive = false;
+      clearInterval(timer);
     };
   }, deps);
   return { data, error };
 }
+function useAction() {
+  const notify = useContext(Notice);
+  const [busy, setBusy] = useState(false),
+    [error, setError] = useState("");
+  const run = async (fn: () => Promise<unknown>, message = "Saved") => {
+    setBusy(true);
+    setError("");
+    try {
+      await fn();
+      if (message) notify(message);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return { busy, error, run };
+}
 function ErrorBox({ error }: { error?: string }) {
   return error ? (
-    <div className="error">
-      <AlertCircle size={17} />
+    <div className="error" role="alert">
       {error}
     </div>
   ) : null;
-}
-function Badge({ status }: { status: string }) {
-  return (
-    <span className={"badge " + status.toLowerCase()}>
-      <i />
-      {status.toLowerCase().replace("_", " ")}
-    </span>
-  );
 }
 function Button({
   children,
@@ -127,100 +132,109 @@ function Button({
     </button>
   );
 }
-function PageHead({
-  eyebrow,
+function Head({
   title,
-  description,
+  text,
   action,
 }: {
-  eyebrow: string;
   title: string;
-  description?: string;
+  text?: string;
   action?: React.ReactNode;
 }) {
   return (
     <header className="page-head">
       <div>
-        <div className="eyebrow">{eyebrow}</div>
         <h1>{title}</h1>
-        {description && <p>{description}</p>}
+        {text && <p>{text}</p>}
       </div>
       {action}
     </header>
   );
 }
-function Stat({
-  label,
-  value,
-  icon: Icon,
-  detail,
-}: {
-  label: string;
-  value: React.ReactNode;
-  icon: React.ElementType;
-  detail?: string;
-}) {
+function Badge({ status }: { status: string }) {
+  return (
+    <span className={"badge " + status.toLowerCase()}>
+      <i />
+      {status.toLowerCase()}
+    </span>
+  );
+}
+function Stat({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="stat">
-      <div className="stat-top">
-        {label}
-        <Icon size={17} />
-      </div>
+      <div className="stat-top">{label}</div>
       <strong>{value}</strong>
-      {detail && <small>{detail}</small>}
     </div>
   );
 }
-function Empty({
-  title,
-  children,
+function Empty({ children }: { children: React.ReactNode }) {
+  return <div className="empty">{children}</div>;
+}
+function Field({
+  label,
+  value,
+  onChange,
+  type = "number",
+  min = 0,
+  max = 1000000,
 }: {
-  title: string;
-  children?: React.ReactNode;
+  label: string;
+  value: any;
+  onChange: (v: any) => void;
+  type?: string;
+  min?: number;
+  max?: number;
 }) {
   return (
-    <div className="empty">
-      <Box size={32} />
-      <h3>{title}</h3>
-      {children}
-    </div>
+    <label>
+      {label}
+      <input
+        type={type}
+        value={value ?? ""}
+        min={min}
+        max={max}
+        step="any"
+        onChange={(e) =>
+          onChange(type === "number" ? Number(e.target.value) : e.target.value)
+        }
+      />
+    </label>
   );
 }
-function useAction() {
-  const notify = useContext(Notice);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const run = async (fn: () => Promise<unknown>, message = "Saved") => {
-    setBusy(true);
-    setError("");
-    try {
-      await fn();
-      if (message) notify(message);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return { busy, error, run };
+function Toggle({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="toggle-row">
+      <span>{label}</span>
+      <input
+        type="checkbox"
+        checked={value}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+    </label>
+  );
 }
 
-function Login({ register = false }: { register?: boolean }) {
+function Login() {
   const { user, reload } = useContext(Auth);
-  const nav = useNavigate();
-  const [email, setEmail] = useState("");
-  const [message, setMessage] = useState("");
-  const { busy, error, run } = useAction();
-  const { data: health } = usePoll<{ demo_login: boolean }>(
-    () => api("/health"),
-    [],
-    30000,
-  );
-  const token = new URLSearchParams(location.hash.slice(1)).get("token");
+  const nav = useNavigate(),
+    action = useAction();
+  const [email, setEmail] = useState(""),
+    [password, setPassword] = useState(""),
+    [message, setMessage] = useState("");
+  const { data: health } = usePoll<any>(() => api("/health"), [], 30000);
   useEffect(() => {
+    const token = new URLSearchParams(location.hash.slice(1)).get("token");
     if (token) {
       history.replaceState(null, "", "/login");
-      run(async () => {
+      action.run(async () => {
         await api("/auth/verify", "POST", { token });
         const account = await api<User>("/me");
         await reload();
@@ -233,216 +247,126 @@ function Login({ register = false }: { register?: boolean }) {
   return (
     <div className="auth-page">
       <div className="auth-art">
-        <Link to="/login" className="brand">
+        <div className="brand">
           <span className="brand-mark">
-            <Cpu size={24} />
+            <Cpu />
           </span>
           Robot Training Hub
-        </Link>
+        </div>
         <div className="auth-copy">
-          <span className="pill">HUMANOID REINFORCEMENT LEARNING</span>
+          <span className="pill">BOOSTER K1 WORKSHOP</span>
           <h1>
-            Small experiments.
+            Train motion tracking
             <br />
-            Big steps forward.
+            with mjlab.
           </h1>
           <p>
-            A shared workspace to train, understand, and explore the Booster K1.
-            Your laptop is all you need.
+            Upload a motion, choose your training settings, and follow the run
+            from your browser.
           </p>
-          <div className="robot-orbit">
-            <Robot />
+          <div className="auth-steps">
+            <span>01 &nbsp; Upload a K1 motion CSV</span>
+            <span>02 &nbsp; Preview the motion</span>
+            <span>03 &nbsp; Train and review TensorBoard</span>
           </div>
-          <span className="auth-foot">
-            BOOSTER K1 &nbsp; / &nbsp; MJLAB WORKSHOP
-          </span>
+          <a href={REPO} target="_blank" rel="noreferrer" className="text-link">
+            Training repository <ArrowUpRight size={15} />
+          </a>
         </div>
       </div>
       <div className="auth-form">
-        <div className="mobile-brand">Robot Training Hub</div>
-        <span className="eyebrow">YOUR WORKSHOP WORKSPACE</span>
-        <h1>{register ? "Join the workshop" : "Welcome back."}</h1>
-        <p>
-          {register
-            ? "Register your email. Your workshop administrator will approve access."
-            : "Sign in with a secure link sent to your approved email."}
-        </p>
+        <div className="eyebrow">ROBOT TRAINING HUB</div>
+        <h1>Sign in</h1>
+        <p>Use the account your workshop administrator approved.</p>
         {health?.demo_login && (
           <div className="demo-login">
-            <b>Local demo · no registration or email needed</b>
-            <Button
-              disabled={busy}
-              onClick={() =>
-                run(async () => {
-                  const result = await api("/auth/demo", "POST", {
-                    role: "admin",
-                  });
-                  await reload();
-                  nav(result.redirect);
-                }, "")
-              }
-            >
-              <ShieldCheck size={17} />
-              Open admin demo
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={busy}
-              onClick={() =>
-                run(async () => {
-                  const result = await api("/auth/demo", "POST", {
-                    role: "participant",
-                  });
-                  await reload();
-                  nav(result.redirect);
-                }, "")
-              }
-            >
-              <Users size={17} />
-              Open participant demo
-            </Button>
-            <small>
-              Choose a role to explore. Your session stays signed in.
-            </small>
+            <b>Local development</b>
+            {["admin", "participant"].map((role) => (
+              <Button
+                key={role}
+                variant={role === "participant" ? "secondary" : ""}
+                disabled={action.busy}
+                onClick={() =>
+                  action.run(async () => {
+                    const result = await api("/auth/demo", "POST", { role });
+                    await reload();
+                    nav(result.redirect);
+                  }, "")
+                }
+              >
+                Open {role} demo
+              </Button>
+            ))}
           </div>
         )}
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            run(async () => {
-              const r = await api(
-                "/auth/" + (register ? "register" : "request"),
-                "POST",
-                { email },
-              );
-              setMessage(r.message);
+            action.run(async () => {
+              const result = await api("/auth/password", "POST", {
+                email,
+                password,
+              });
+              await reload();
+              nav(result.redirect);
             }, "");
           }}
         >
           <label>
-            Email address
+            Email
             <input
               type="email"
+              required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@university.edu"
-              required
-              autoComplete="email"
+              autoComplete="username"
             />
           </label>
-          <Button type="submit" disabled={busy}>
-            {busy
-              ? "Please wait…"
-              : register
-                ? "Request workshop access"
-                : "Send sign-in link"}
-            <ArrowRight size={17} />
+          <label>
+            Password
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+            />
+          </label>
+          <Button type="submit" disabled={action.busy}>
+            {action.busy ? "Signing in…" : "Sign in"}
+            <ArrowRight size={16} />
           </Button>
         </form>
-        <ErrorBox error={error} />
-        {message && (
-          <div className="success">
-            <Check size={18} />
-            {message}
-          </div>
-        )}
+        <ErrorBox error={action.error} />
         <p className="auth-switch">
-          {register ? "Already registered?" : "New to the workshop?"}{" "}
-          <Link to={register ? "/login" : "/register"}>
-            {register ? "Sign in" : "Request access"}
-          </Link>
+          Invited participants can open the sign-in link provided by the
+          administrator.
         </p>
+        <button
+          className="text-link"
+          disabled={!email || action.busy}
+          onClick={() =>
+            action.run(async () => {
+              const r = await api("/auth/request", "POST", { email });
+              setMessage(r.message);
+            }, "")
+          }
+        >
+          Email me a sign-in link
+        </button>
+        {message && <div className="info">{message}</div>}
         <div className="auth-note">
-          <ShieldCheck size={19} />
-          <span>
-            No password to remember.
-            <br />
-            Your sign-in link expires in 15 minutes.
-          </span>
+          <ShieldCheck size={18} />
+          Registration is managed by the workshop administrator.
         </div>
       </div>
     </div>
-  );
-}
-function Robot() {
-  return (
-    <svg
-      viewBox="0 0 320 330"
-      className="robot"
-      aria-label="Illustration of a Booster K1 humanoid robot"
-    >
-      <defs>
-        <linearGradient id="metal" x1="0" y1="0" x2="1" y2="1">
-          <stop stopColor="#e3f7ed" />
-          <stop offset="1" stopColor="#8aa8a0" />
-        </linearGradient>
-      </defs>
-      <ellipse cx="162" cy="303" rx="89" ry="12" fill="#103c36" />
-      <g stroke="#214941" strokeWidth="3" strokeLinejoin="round">
-        <path
-          d="M128 96L115 148 129 183H194L207 148 194 96Z"
-          fill="url(#metal)"
-        />
-        <rect
-          x="134"
-          y="44"
-          width="55"
-          height="47"
-          rx="18"
-          fill="url(#metal)"
-        />
-        <rect x="140" y="56" width="43" height="15" rx="7" fill="#133b36" />
-        <path d="M149 62h7m9 0h7" stroke="#9be4b3" />
-        <rect x="151" y="88" width="23" height="10" rx="4" fill="#214c43" />
-        <circle cx="117" cy="111" r="14" fill="#66877d" />
-        <circle cx="204" cy="111" r="14" fill="#66877d" />
-        <path
-          d="M104 115L90 158 101 181 114 166 125 119M198 121L215 160 205 179 194 163"
-          fill="url(#metal)"
-        />
-        <path
-          d="M94 179l-4 40 13 6 11-42M209 178l18 38-13 7-19-41"
-          fill="url(#metal)"
-        />
-        <circle cx="105" cy="175" r="10" fill="#284f45" />
-        <circle cx="204" cy="175" r="10" fill="#284f45" />
-        <path
-          d="M128 183L128 227 150 235 159 187M166 187L171 231 195 224 194 183"
-          fill="#a6c1b5"
-        />
-        <circle cx="139" cy="232" r="12" fill="#285347" />
-        <circle cx="182" cy="232" r="12" fill="#285347" />
-        <path
-          d="M126 243l1 45h24l-1-44M171 244l3 44h25l-5-47"
-          fill="url(#metal)"
-        />
-        <path
-          d="M126 285l-12 14h40v-14M174 285l-1 14h38l-13-14"
-          fill="#63877c"
-        />
-        <path d="M141 116h41l-4 32h-32Z" fill="#376459" />
-        <path d="M151 129h19" stroke="#b0efb9" strokeWidth="4" />
-        <circle cx="161" cy="168" r="5" fill="#3a6d58" />
-      </g>
-      <g fill="#a0d6ad">
-        <circle cx="65" cy="105" r="3" />
-        <circle cx="258" cy="193" r="3" />
-        <circle cx="239" cy="59" r="2" />
-      </g>
-      <g stroke="#43725e" strokeWidth="1" fill="none">
-        <path d="M202 67h44l13-12M109 255H65l-13 15" />
-        <circle cx="260" cy="54" r="5" />
-        <circle cx="49" cy="273" r="5" />
-      </g>
-    </svg>
   );
 }
 
 function Shell() {
   const { user, reload } = useContext(Auth);
   const [mobile, setMobile] = useState(false);
-  const loc = useLocation();
-  useEffect(() => setMobile(false), [loc.pathname]);
   if (!user) return <Navigate to="/login" />;
   return (
     <div className="app">
@@ -453,8 +377,11 @@ function Shell() {
       >
         <Menu />
       </button>
-      <aside className={mobile ? "sidebar open" : "sidebar"}>
-        <Link to="/dashboard" className="brand">
+      <aside className={"sidebar " + (mobile ? "open" : "")}>
+        <Link
+          className="brand"
+          to={user.role === "admin" ? "/admin" : "/dashboard"}
+        >
           <span className="brand-mark">
             <Cpu size={23} />
           </span>
@@ -463,19 +390,19 @@ function Shell() {
           </span>
         </Link>
         <div className="workspace">
-          <span className="workspace-icon">
-            <FlaskConical size={19} />
-          </span>
+          <FlaskConical size={18} />
           <div>
-            K1 Workshop<small>Reinforcement learning lab</small>
+            Booster K1 workshop<small>mjlab motion tracking</small>
           </div>
-          <ChevronRight size={15} />
         </div>
-        <span className="nav-label">WORKSPACE</span>
-        <nav>
+        <nav onClick={() => setMobile(false)}>
           <NavLink to="/dashboard">
             <LayoutDashboard />
-            Overview
+            Dashboard
+          </NavLink>
+          <NavLink to="/motions">
+            <Play />
+            Motions
           </NavLink>
           <NavLink to="/train/new">
             <Plus />
@@ -483,28 +410,28 @@ function Shell() {
           </NavLink>
           <NavLink to="/runs" end>
             <Activity />
-            My trainings
+            My runs
           </NavLink>
-          <NavLink to="/code">
+          <a href={REPO} target="_blank" rel="noreferrer">
             <Code2 />
-            Training code
-          </NavLink>
+            Training repository <ArrowUpRight size={12} />
+          </a>
         </nav>
         {user.role === "admin" && (
           <>
-            <span className="nav-label admin-label">ADMINISTRATION</span>
-            <nav>
+            <div className="nav-label admin-label">ADMIN</div>
+            <nav onClick={() => setMobile(false)}>
               <NavLink to="/admin" end>
                 <ShieldCheck />
-                Workshop overview
+                Overview
               </NavLink>
               <NavLink to="/admin/runs">
                 <Layers />
-                All training runs
+                All runs
               </NavLink>
               <NavLink to="/admin/servers">
                 <Server />
-                Compute & MPS
+                Compute
               </NavLink>
               <NavLink to="/admin/users">
                 <Users />
@@ -512,26 +439,18 @@ function Shell() {
               </NavLink>
               <NavLink to="/admin/settings">
                 <Settings2 />
-                Workshop settings
+                Settings
               </NavLink>
             </nav>
           </>
         )}
         <div className="sidebar-bottom">
-          <div className="learn-card">
-            <BookOpen size={19} />
-            <b>Learn by doing</b>
-            <p>Every run includes the real source code behind your robot.</p>
-            <Link to="/code">
-              Explore the code <ArrowUpRight size={15} />
-            </Link>
-          </div>
           <div className="profile">
             <span className="avatar">
               {user.email.slice(0, 2).toUpperCase()}
             </span>
             <div>
-              <b>{user.email.split("@")[0]}</b>
+              <b title={user.email}>{user.email}</b>
               <small>{user.role}</small>
             </div>
             <button
@@ -549,26 +468,20 @@ function Shell() {
       <main className="main">
         <div className="topbar">
           <div>
-            Workspace <ChevronRight size={13} />
-            <b>
-              {loc.pathname.startsWith("/admin")
-                ? "Administration"
-                : "K1 workshop"}
-            </b>
+            Workshop <ChevronRight size={12} />
+            <b>Booster K1</b>
           </div>
-          <span>
-            <i className="online-dot" />
-            Workshop workspace
-          </span>
+          <span>{user.role === "admin" ? "Administrator" : "Participant"}</span>
         </div>
         <div className="content">
           <Routes>
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/motions" element={<Motions />} />
             <Route path="/train/new" element={<NewTraining />} />
-            <Route path="/runs" element={<RunsPage />} />
+            <Route path="/runs" element={<Runs />} />
             <Route path="/runs/:id" element={<RunPage />} />
-            <Route path="/runs/:id/code" element={<CodePage />} />
-            <Route path="/code" element={<CodePage />} />
+            <Route path="/runs/:id/code" element={<Repository />} />
+            <Route path="/code" element={<Repository />} />
             <Route
               path="/admin/*"
               element={
@@ -579,11 +492,18 @@ function Shell() {
                 )
               }
             />
-            <Route path="*" element={<Navigate to="/dashboard" />} />
+            <Route
+              path="*"
+              element={
+                <Navigate
+                  to={user.role === "admin" ? "/admin" : "/dashboard"}
+                />
+              }
+            />
           </Routes>
           <footer className="footer">
             <span>ROBOT TRAINING HUB</span>
-            <span>Booster K1 · Powered by mjlab</span>
+            <span>Booster K1 · mjlab</span>
           </footer>
         </div>
       </main>
@@ -594,165 +514,105 @@ function Shell() {
 function Dashboard() {
   const { user } = useContext(Auth);
   const { data: runs, error } = usePoll<Run[]>(() => api("/runs"));
-  const own = runs?.filter((r) => r.email === user?.email) || [];
-  const running = own.find(active);
+  const { data: options } = usePoll<any>(() => api("/options"), [], 15000);
+  const own = (runs || []).filter((r) => r.email === user?.email),
+    current = own.find(active);
   return (
     <>
-      <PageHead
-        eyebrow="YOUR LEARNING WORKSPACE"
-        title={`Let's make progress, ${user?.email.split("@")[0]}.`}
-        description="Train a humanoid. Explore the code. See what changes."
+      <Head
+        title="Training dashboard"
+        text="Upload a motion, start a run, and review the results."
         action={
           <Link className="button" to="/train/new">
-            <Plus size={17} />
+            <Plus size={16} />
             New training
           </Link>
         }
       />
       <ErrorBox error={error} />
-      <section className="hero">
-        <div className="hero-copy">
-          <span className="pill">BOOSTER K1 · MOTION TRACKING</span>
-          <h2>
-            Your next idea,
-            <br />
-            in motion.
-          </h2>
-          <p>
-            Turn motion capture into learned behavior. We handle the compute so
-            you can focus on the experiment.
-          </p>
-          <Link to="/train/new" className="button light">
-            Start an experiment <ArrowRight size={16} />
-          </Link>
-          <div className="hero-note">
-            <ShieldCheck size={15} />
-            No setup. No SSH. Just exploration.
-          </div>
-        </div>
-        <div className="hero-visual">
-          <div className="orbit orbit-one" />
-          <div className="orbit orbit-two" />
-          <Robot />
-          <div className="robot-label">
-            <span className="online-dot" />
-            Booster K1 <small>22 degrees of freedom</small>
-          </div>
-        </div>
-      </section>
       <div className="stats">
+        <Stat label="Your runs" value={own.length} />
         <Stat
-          label="Your experiments"
-          value={own.length}
-          icon={FlaskConical}
-          detail="Every idea starts with a run"
+          label="Maximum environments"
+          value={(
+            options?.user_env_limit ??
+            options?.max_envs ??
+            2048
+          ).toLocaleString()}
         />
         <Stat
-          label="Completed"
-          value={own.filter((r) => r.status === "COMPLETED").length}
-          icon={Check}
-          detail="Ready to explore and download"
-        />
-        <Stat
-          label="Active experiment"
-          value={running ? running.status.toLowerCase() : "Ready to train"}
-          icon={Activity}
-          detail={
-            running?.queue_position
-              ? `Position ${running.queue_position} in queue`
-              : "One experiment at a time"
-          }
+          label="Active run"
+          value={current ? current.status.toLowerCase() : "None"}
         />
       </div>
-      {running && (
-        <section className="panel active-panel">
+      {current && (
+        <section className="panel details">
           <div className="section-title">
-            <h2>Your active experiment</h2>
-            <Badge status={running.status} />
+            <h2>{current.name}</h2>
+            <Badge status={current.status} />
           </div>
-          <div className="active-content">
-            <span className="experiment-icon">
-              <Activity />
-            </span>
-            <div>
-              <Link to={"/runs/" + running.id}>
-                <h3>{running.name}</h3>
-              </Link>
-              <p>
-                {running.spec.num_envs.toLocaleString()} environments ·{" "}
-                {running.server_name || "Waiting for available compute"}
-              </p>
-            </div>
-            <div className="active-progress">
-              <b>
-                {Math.round(
-                  (running.iteration / running.spec.iterations) * 100,
-                )}
-                %
-              </b>
-              <progress
-                max={running.spec.iterations}
-                value={running.iteration}
-              />
-            </div>
-            <Link to={"/runs/" + running.id} className="button secondary">
-              Open run <ArrowRight size={16} />
-            </Link>
-          </div>
+          <p>
+            {current.queue_position
+              ? `Queue position ${current.queue_position}`
+              : `${current.iteration} / ${current.spec.iterations} iterations · ${current.server_name || "Assigning compute"}`}
+          </p>
+          <Link to={"/runs/" + current.id} className="button secondary">
+            Open run <ArrowRight size={16} />
+          </Link>
         </section>
       )}
-      <section className="panel">
-        <div className="section-title">
-          <div>
-            <h2>Recent experiments</h2>
-            <p>Your work, from first step to final checkpoint.</p>
-          </div>
-          <Link to="/runs" className="text-link">
-            View all runs <ArrowRight size={15} />
-          </Link>
-        </div>
-        <RunTable runs={own.slice(0, 5)} />
-      </section>
       <div className="two-col">
-        <Link to="/code" className="resource-card">
+        <Link to="/motions" className="resource-card">
+          <span className="resource-icon">
+            <Upload />
+          </span>
+          <div>
+            <h3>Upload and preview a motion</h3>
+            <p>
+              Use a Booster K1 CSV with root pose and 22 joint angles. Preview
+              it before training.
+            </p>
+          </div>
+        </Link>
+        <a
+          href={REPO}
+          target="_blank"
+          rel="noreferrer"
+          className="resource-card"
+        >
           <span className="resource-icon">
             <Code2 />
           </span>
           <div>
-            <h3>See what makes it move</h3>
+            <h3>Training repository</h3>
             <p>
-              Browse the reward functions, task configuration, and training
-              pipeline.
+              Robot configuration, rewards, and the mjlab training pipeline.
             </p>
             <b>
-              Explore training code <ArrowUpRight size={15} />
+              Open GitHub <ArrowUpRight size={14} />
             </b>
           </div>
-        </Link>
-        <div className="resource-card">
-          <span className="resource-icon sand">
-            <Layers />
-          </span>
-          <div>
-            <h3>A little experimentation goes a long way</h3>
-            <p>
-              Change one parameter, compare the reward curve, and learn from
-              each run. Your source is saved automatically.
-            </p>
-          </div>
-        </div>
+        </a>
       </div>
+      <section className="panel" style={{ marginTop: 24 }}>
+        <div className="section-title">
+          <h2>Recent runs</h2>
+          <Link to="/runs" className="text-link">
+            All runs <ArrowRight size={14} />
+          </Link>
+        </div>
+        <RunTable runs={own.slice(0, 6)} />
+      </section>
     </>
   );
 }
-
 function RunTable({ runs, admin = false }: { runs: Run[]; admin?: boolean }) {
   if (!runs.length)
     return (
-      <Empty title="Your next experiment starts here">
-        <p>Launch a training run to see its progress and results.</p>
-        <Link className="button secondary" to="/train/new">
-          Start training <Plus size={16} />
+      <Empty>
+        No training runs yet.{" "}
+        <Link to="/train/new" className="text-link">
+          Start a run
         </Link>
       </Empty>
     );
@@ -764,10 +624,10 @@ function RunTable({ runs, admin = false }: { runs: Run[]; admin?: boolean }) {
             <th>Experiment</th>
             {admin && <th>Participant</th>}
             <th>Status</th>
-            <th>Environment / motion</th>
-            <th>Compute</th>
+            <th>Motion / environments</th>
+            <th>Server</th>
             <th>Progress</th>
-            <th>{admin ? "Started / memory" : "Elapsed"}</th>
+            <th>Elapsed</th>
             <th />
           </tr>
         </thead>
@@ -778,10 +638,7 @@ function RunTable({ runs, admin = false }: { runs: Run[]; admin?: boolean }) {
                 <Link className="run-name" to={"/runs/" + r.id}>
                   {r.name}
                 </Link>
-                <small className="mono">
-                  {r.id.slice(0, 8)}
-                  {admin && ` · priority ${r.priority}`}
-                </small>
+                <small>{r.id.slice(0, 8)}</small>
               </td>
               {admin && <td>{r.email}</td>}
               <td>
@@ -789,29 +646,20 @@ function RunTable({ runs, admin = false }: { runs: Run[]; admin?: boolean }) {
                 {r.cancel && active(r) && <small>Stopping requested</small>}
               </td>
               <td>
-                {r.spec.num_envs.toLocaleString()} envs
-                <small>{r.spec.motion.label}</small>
+                {r.spec.motion.label}
+                <small>{r.spec.num_envs.toLocaleString()} environments</small>
               </td>
-              <td>
-                {r.server_name || "Auto assignment"}
-                <small>{r.gpu?.slice(0, 18) || "Queued for capacity"}</small>
-              </td>
+              <td>{r.server_name || "Queued"}</td>
               <td>
                 <div className="mini-progress">
-                  <span>
-                    {r.iteration.toLocaleString()} /{" "}
-                    {r.spec.iterations.toLocaleString()}
-                  </span>
+                  {r.iteration} / {r.spec.iterations}
                   <progress value={r.iteration} max={r.spec.iterations} />
                 </div>
               </td>
+              <td>{duration(r)}</td>
               <td>
-                {admin ? date(r.started) : duration(r)}
-                {admin && <small>{r.gpu_mb} MiB</small>}
-              </td>
-              <td>
-                <Link aria-label={"Open " + r.name} to={"/runs/" + r.id}>
-                  <ArrowUpRight size={18} />
+                <Link to={"/runs/" + r.id} aria-label={"Open " + r.name}>
+                  <ArrowUpRight size={16} />
                 </Link>
               </td>
             </tr>
@@ -821,45 +669,38 @@ function RunTable({ runs, admin = false }: { runs: Run[]; admin?: boolean }) {
     </div>
   );
 }
-function RunsPage({ admin = false }: { admin?: boolean }) {
-  const [status, setStatus] = useState("");
-  const [q, setQ] = useState("");
+function Runs({ admin = false }: { admin?: boolean }) {
+  const [q, setQ] = useState(""),
+    [status, setStatus] = useState("");
   const { data, error } = usePoll<Run[]>(
     () =>
-      api(`/runs?${new URLSearchParams({ q, ...(status ? { status } : {}) })}`),
-    [status, q],
+      api("/runs?" + new URLSearchParams({ q, ...(status ? { status } : {}) })),
+    [q, status],
   );
   return (
     <>
-      <PageHead
-        eyebrow={admin ? "ADMINISTRATION" : "YOUR WORKSPACE"}
-        title={admin ? "All training runs" : "My trainings"}
-        description={
+      <Head
+        title={admin ? "All training runs" : "My training runs"}
+        text={
           admin
-            ? "Inspect every experiment, manage the queue, and follow workshop progress."
-            : "A complete record of your experiments and what they learned."
-        }
-        action={
-          <Link className="button" to="/train/new">
-            <Plus size={16} />
-            New training
-          </Link>
+            ? "Inspect progress, stop jobs, or update queue priority."
+            : "Your queued, running, and completed experiments."
         }
       />
       <ErrorBox error={error} />
       <section className="panel">
         <div className="filterbar">
           <div className="search">
-            <Search size={17} />
+            <Search size={16} />
             <input
-              aria-label="Search training runs"
+              aria-label="Search runs"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search experiments, IDs, or participants…"
+              placeholder="Search name, ID, or email"
             />
           </div>
           <select
-            aria-label="Filter status"
+            aria-label="Run status"
             value={status}
             onChange={(e) => setStatus(e.target.value)}
           >
@@ -875,61 +716,193 @@ function RunsPage({ admin = false }: { admin?: boolean }) {
               <option key={s}>{s}</option>
             ))}
           </select>
-          <span className="muted">{data?.length || 0} runs</span>
         </div>
-        {data ? (
-          <RunTable runs={data} admin={admin} />
-        ) : (
-          <p className="loading">Loading experiments…</p>
-        )}
+        {data && <RunTable runs={data} admin={admin} />}
       </section>
     </>
   );
 }
 
-function NewTraining() {
-  const { data: options, error } = usePoll<any>(
-    () => api("/options"),
-    [],
-    15000,
-  );
-  const { data: runs } = usePoll<Run[]>(() => api("/runs"));
+function Motions() {
   const { user } = useContext(Auth);
-  const nav = useNavigate();
+  const { data: motions, error } = usePoll<any[]>(() => api("/motions"));
+  const [file, setFile] = useState<File>(),
+    [label, setLabel] = useState(""),
+    [fps, setFps] = useState(50),
+    [selected, setSelected] = useState("");
   const action = useAction();
-  const [name, setName] = useState("");
-  const [motion, setMotion] = useState("");
-  const [envs, setEnvs] = useState(0);
-  const [iterations, setIterations] = useState(200);
-  const [advanced, setAdvanced] = useState(false);
-  const [lr, setLr] = useState("");
-  const [rewards, setRewards] = useState<Record<string, string>>({});
   useEffect(() => {
-    if (options) {
-      setEnvs(options.default_envs);
-      setMotion(options.motions[0]?.id || "");
-    }
-  }, [!!options]);
-  const outstanding = runs?.find((r) => r.email === user?.email && active(r));
+    if (motions?.length && !selected) setSelected(motions[0].id);
+  }, [motions]);
+  const motion = motions?.find((m) => m.id === selected);
   return (
     <>
-      <PageHead
-        eyebrow="NEW EXPERIMENT"
-        title="Set your robot in motion."
-        description="Choose a motion and a training budget. We'll find the right GPU."
+      <Head
+        title="Motion library"
+        text="Upload a Booster K1 CSV and preview it in the browser."
       />
       <ErrorBox error={error || action.error} />
-      {outstanding && (
-        <div className="warning">
-          <Clock size={18} />
-          <span>
-            You already have an outstanding run.{" "}
-            <Link to={"/runs/" + outstanding.id}>Open {outstanding.name}</Link>{" "}
-            to follow or stop it.
-          </span>
+      <form
+        className="panel details upload-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          action.run(async () => {
+            if (!file) throw Error("Choose a CSV file");
+            const query = new URLSearchParams({
+              label: label || file.name.replace(/\.csv$/i, ""),
+              fps: String(fps),
+              shared: String(user?.role === "admin"),
+            });
+            const response = await fetch("/api/motions?" + query, {
+              method: "POST",
+              headers: { "X-Hub-Request": "1", "Content-Type": "text/csv" },
+              body: file,
+            });
+            const result = await response.json();
+            if (!response.ok) throw Error(result.detail || "Upload failed");
+            setSelected(result.id);
+            setFile(undefined);
+            setLabel("");
+          }, "Motion uploaded");
+        }}
+      >
+        <div className="form-grid three">
+          <label>
+            Motion name
+            <input
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="e.g. MJ dance"
+              maxLength={120}
+            />
+          </label>
+          <label>
+            CSV file
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              required
+              onChange={(e) => setFile(e.target.files?.[0])}
+            />
+          </label>
+          <Field
+            label="Frame rate (Hz)"
+            value={fps}
+            min={1}
+            max={240}
+            onChange={setFps}
+          />
         </div>
-      )}
-      {options && (
+        <p>
+          Expected: root XYZ in meters, quaternion XYZW, and 22 K1 joint
+          positions in radians. Booster Assets motion files use 50 Hz.
+        </p>
+        <Button type="submit" disabled={action.busy}>
+          <Upload size={16} />
+          {action.busy ? "Validating…" : "Upload CSV"}
+        </Button>
+      </form>
+      <div className="motion-layout">
+        <section className="panel motion-library">
+          {motions?.map((m) => (
+            <button
+              key={m.id}
+              className={
+                m.id === selected ? "motion-item selected" : "motion-item"
+              }
+              onClick={() => setSelected(m.id)}
+            >
+              <b>{m.label}</b>
+              <small>
+                {m.frames.toLocaleString()} frames · {m.duration.toFixed(1)} s ·{" "}
+                {m.fps} Hz
+              </small>
+              <span className="badge">
+                {m.approved ? "Approved" : "Awaiting approval"}
+              </span>
+            </button>
+          ))}
+          {!motions?.length && (
+            <Empty>Upload a motion to preview it here.</Empty>
+          )}
+        </section>
+        <div>
+          {motion && (
+            <>
+              <div className="section-title outside">
+                <div>
+                  <h2>{motion.label}</h2>
+                  <p>Booster K1 reference motion</p>
+                </div>
+                <div className="actions">
+                  <a
+                    className="button secondary"
+                    href={"/api/motions/" + motion.id + "/download"}
+                  >
+                    <Download size={15} />
+                    CSV
+                  </a>
+                  {motion.approved ? (
+                    <Link
+                      className="button"
+                      to={"/train/new?motion=" + motion.id}
+                    >
+                      Train this motion <ArrowRight size={15} />
+                    </Link>
+                  ) : (
+                    user?.role === "admin" && (
+                      <Button
+                        onClick={() =>
+                          action.run(
+                            () =>
+                              api(
+                                "/admin/motions/" + motion.id + "/approve",
+                                "POST",
+                                { approved: true, shared: true },
+                              ),
+                            "Motion approved",
+                          )
+                        }
+                      >
+                        Approve motion
+                      </Button>
+                    )
+                  )}
+                </div>
+              </div>
+              <MotionViewer key={motion.id} motionId={motion.id} />
+            </>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function NewTraining() {
+  const { data: o, error } = usePoll<any>(() => api("/options"), [], 15000);
+  const nav = useNavigate(),
+    action = useAction();
+  const [name, setName] = useState(""),
+    [motion, setMotion] = useState(
+      new URLSearchParams(location.search).get("motion") || "",
+    ),
+    [envs, setEnvs] = useState(2048),
+    [iterations, setIterations] = useState(1000);
+  useEffect(() => {
+    if (o) {
+      setEnvs(Math.min(o.default_envs, o.user_env_limit ?? o.max_envs));
+      if (!motion) setMotion(o.motions[0]?.id || "");
+    }
+  }, [!!o]);
+  return (
+    <>
+      <Head
+        title="New training"
+        text="Choose an approved motion and training size. Compute is assigned automatically."
+      />
+      <ErrorBox error={error || action.error} />
+      {o && (
         <form
           className="training-layout"
           onSubmit={(e) => {
@@ -940,210 +913,108 @@ function NewTraining() {
                 motion_id: motion,
                 num_envs: envs,
                 iterations,
-                seed: 42,
-                ...(lr ? { learning_rate: Number(lr) } : {}),
-                rewards: Object.fromEntries(
-                  Object.entries(rewards)
-                    .filter(([, v]) => v !== "")
-                    .map(([k, v]) => [k, Number(v)]),
-                ),
               });
               nav("/runs/" + r.id);
-            }, "Training submitted");
+            }, "Training queued");
           }}
         >
-          <section className="panel form-panel">
-            <div className="form-section">
-              <span className="step">01</span>
-              <div>
-                <h2>Name your experiment</h2>
-                <p>
-                  Pick a name that helps you remember what you are exploring.
-                </p>
-                <label>
-                  Experiment name
-                  <input
-                    required
-                    maxLength={80}
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. First steps · foot tracking"
-                  />
-                </label>
-              </div>
-            </div>
-            <div className="form-section">
-              <span className="step">02</span>
-              <div>
-                <h2>Choose a motion</h2>
-                <p>Train Booster K1 to follow an approved motion artifact.</p>
-                <label>
-                  Task
-                  <select>
-                    <option>Mjlab-Tracking-Flat-Booster-K1</option>
-                  </select>
-                </label>
-                <label>
-                  Motion artifact
-                  <select
-                    required
-                    value={motion}
-                    onChange={(e) => setMotion(e.target.value)}
-                  >
-                    <option value="" disabled>
-                      Select an approved motion
-                    </option>
-                    {options.motions.map((m: any) => (
-                      <option key={m.id} value={m.id}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {!options.motions.length && (
-                  <div className="warning">
-                    An administrator needs to approve a versioned motion
-                    artifact first.
-                  </div>
-                )}
-                <span className="field-note mono">
-                  {options.motions.find((m: any) => m.id === motion)?.artifact}
-                </span>
-              </div>
-            </div>
-            <div className="form-section">
-              <span className="step">03</span>
-              <div>
-                <h2>Set your training budget</h2>
-                <p>
-                  More parallel environments collect more experience at once.
-                </p>
-                <label>Parallel environments</label>
-                <div className="presets">
-                  {options.presets
-                    .filter(
-                      (n: number) =>
-                        n <= (options.user_env_limit ?? options.max_envs),
-                    )
-                    .map((n: number) => (
-                      <button
-                        type="button"
-                        key={n}
-                        className={envs === n ? "preset selected" : "preset"}
-                        onClick={() => setEnvs(n)}
-                      >
-                        {n.toLocaleString()}
-                        {n === options.default_envs && <small>Default</small>}
-                      </button>
-                    ))}
-                </div>
-                <label>
-                  Training iterations
-                  <input
-                    type="number"
-                    required
-                    min={1}
-                    max={options.max_iterations}
-                    value={iterations}
-                    onChange={(e) => setIterations(Number(e.target.value))}
-                  />
-                  <small>
-                    Between 1 and {options.max_iterations.toLocaleString()}{" "}
-                    iterations.
-                  </small>
-                </label>
-                <button
-                  type="button"
-                  className="advanced-toggle"
-                  onClick={() => setAdvanced(!advanced)}
-                >
-                  <Settings2 size={16} />
-                  Approved advanced parameters{" "}
-                  <ChevronRight
-                    size={15}
-                    className={advanced ? "rotate" : ""}
-                  />
-                </button>
-                {advanced && (
-                  <div className="advanced-fields">
-                    <label>
-                      Learning rate
-                      <input
-                        type="number"
-                        step="any"
-                        value={lr}
-                        min={options.learning_rate_bounds[0]}
-                        max={options.learning_rate_bounds[1]}
-                        placeholder="Use task default"
-                        onChange={(e) => setLr(e.target.value)}
-                      />
-                    </label>
-                    {Object.entries(options.reward_bounds).map(
-                      ([key, bounds]: any) => (
-                        <label key={key}>
-                          {key} weight
-                          <input
-                            type="number"
-                            step="any"
-                            value={rewards[key] || ""}
-                            placeholder="Use task default"
-                            min={bounds[0]}
-                            max={bounds[1]}
-                            onChange={(e) =>
-                              setRewards({ ...rewards, [key]: e.target.value })
-                            }
-                          />
-                          <small>Approved range: {bounds.join(" to ")}</small>
-                        </label>
-                      ),
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="form-submit">
-              <span>
-                <ShieldCheck size={16} />
-                Exact source code saved with your run
-              </span>
-              <Button
-                type="submit"
-                disabled={!!outstanding || action.busy || !motion}
+          <section className="panel details">
+            <h2>Training settings</h2>
+            <label>
+              Experiment name
+              <input
+                required
+                value={name}
+                maxLength={80}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="MJ tracking – first run"
+              />
+            </label>
+            <label>
+              Motion
+              <select
+                required
+                value={motion}
+                onChange={(e) => setMotion(e.target.value)}
               >
-                {action.busy ? "Preparing snapshot…" : "Start training"}
+                <option value="" disabled>
+                  Select a motion
+                </option>
+                {o.motions.map((m: any) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {!o.motions.length && (
+              <p>
+                No approved motions yet. <Link to="/motions">Upload a CSV</Link>{" "}
+                or ask the administrator.
+              </p>
+            )}
+            <label>
+              Parallel environments
+              <select
+                value={envs}
+                onChange={(e) => setEnvs(Number(e.target.value))}
+              >
+                {o.presets
+                  .filter(
+                    (n: number) =>
+                      n <= Math.min(o.max_envs, o.user_env_limit ?? o.max_envs),
+                  )
+                  .map((n: number) => (
+                    <option key={n} value={n}>
+                      {n.toLocaleString()}
+                    </option>
+                  ))}
+              </select>
+              <small>
+                Your maximum:{" "}
+                {Math.min(
+                  o.max_envs,
+                  o.user_env_limit ?? o.max_envs,
+                ).toLocaleString()}{" "}
+                environments.
+              </small>
+            </label>
+            <Field
+              label="Training iterations"
+              value={iterations}
+              min={1}
+              max={o.max_iterations}
+              onChange={setIterations}
+            />
+            <div className="form-submit">
+              <span>One outstanding run per participant.</span>
+              <Button type="submit" disabled={action.busy || !motion}>
+                {action.busy ? "Preparing run…" : "Start training"}
                 <ArrowRight size={16} />
               </Button>
             </div>
           </section>
           <aside className="training-aside">
-            <div className="panel summary">
-              <div className="eyebrow">EXPERIMENT SUMMARY</div>
-              <Robot />
-              <h3>Booster K1</h3>
-              <p>Motion-tracking reinforcement learning</p>
-              <dl>
-                <dt>Parallel environments</dt>
-                <dd>{envs.toLocaleString()}</dd>
-                <dt>Iterations</dt>
-                <dd>{iterations.toLocaleString()}</dd>
-                <dt>Compute placement</dt>
-                <dd>Automatic</dd>
-                <dt>Source snapshot</dt>
-                <dd>
-                  Included <Check size={14} />
-                </dd>
-              </dl>
-            </div>
-            <div className="tip">
-              <Zap size={20} />
-              <div>
-                <b>Start small, learn faster.</b>
-                <p>
-                  A short run with 512 environments is a good way to explore
-                  your first changes.
-                </p>
-              </div>
-            </div>
+            <section className="panel details">
+              <h3>Booster K1 tracking</h3>
+              <p>
+                The same pinned mjlab tracking task runs on each worker. CSV
+                motions are converted to the required tracking format before
+                training.
+              </p>
+              <p>
+                Watch reward and loss curves in TensorBoard. Download your
+                checkpoint when the run finishes.
+              </p>
+              <a
+                href={REPO}
+                target="_blank"
+                rel="noreferrer"
+                className="text-link"
+              >
+                Training repository <ArrowUpRight size={14} />
+              </a>
+            </section>
           </aside>
         </form>
       )}
@@ -1151,66 +1022,42 @@ function NewTraining() {
   );
 }
 
-function Chart({ metrics = [] }: { metrics?: any[] }) {
+function RewardChart({ metrics = [] }: { metrics: any[] | undefined }) {
   const data = metrics.filter((m) => Number.isFinite(m.reward));
   if (data.length < 2)
     return (
-      <div className="chart-empty">
-        <Activity size={28} />
-        <p>Reward metrics will appear as training progresses.</p>
-      </div>
+      <Empty>Reward metrics will appear after the first iterations.</Empty>
     );
-  const values = data.map((m) => m.reward);
-  const lo = Math.min(...values),
-    hi = Math.max(...values);
-  const w = 700,
-    h = 210;
+  const min = Math.min(...data.map((m) => m.reward)),
+    max = Math.max(...data.map((m) => m.reward));
   const points = data.map(
     (v, i) =>
-      `${45 + (i * (w - 65)) / (data.length - 1)},${h - 30 - ((v.reward - lo) / (hi - lo || 1)) * (h - 55)}`,
+      `${40 + (i * 620) / (data.length - 1)},${190 - ((v.reward - min) / (max - min || 1)) * 160}`,
   );
   return (
     <svg
       className="chart"
-      viewBox={`0 0 ${w} ${h}`}
+      viewBox="0 0 700 220"
       role="img"
-      aria-label="Training mean reward over iterations"
+      aria-label="Reward over training iterations"
     >
-      <defs>
-        <linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
-          <stop stopColor="#75ac80" stopOpacity=".24" />
-          <stop offset="1" stopColor="#75ac80" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      {[0, 0.5, 1].map((v) => (
-        <g key={v}>
-          <line
-            x1="45"
-            x2={w - 20}
-            y1={25 + v * (h - 55)}
-            y2={25 + v * (h - 55)}
-            stroke="#e5e9e2"
-            strokeDasharray="4 4"
-          />
-          <text x="2" y={29 + v * (h - 55)}>
-            {(hi - v * (hi - lo)).toFixed(1)}
-          </text>
-        </g>
-      ))}
-      <path
-        d={`M${points[0].split(",")[0]},${h - 30} L${points.join(" L")} L${w - 20},${h - 30} Z`}
-        fill="url(#fill)"
-      />
+      <line x1="40" y1="190" x2="660" y2="190" stroke="#dce4d4" />
       <polyline
         points={points.join(" ")}
         fill="none"
-        stroke="#45825a"
+        stroke="#517f4c"
         strokeWidth="2.5"
       />
-      <text x="45" y={h - 5}>
+      <text x="5" y="30">
+        {max.toFixed(2)}
+      </text>
+      <text x="5" y="190">
+        {min.toFixed(2)}
+      </text>
+      <text x="40" y="215">
         Iteration {data[0].step}
       </text>
-      <text x={w - 100} y={h - 5}>
+      <text x="600" y="215">
         {data.at(-1).step}
       </text>
     </svg>
@@ -1218,504 +1065,258 @@ function Chart({ metrics = [] }: { metrics?: any[] }) {
 }
 function RunPage() {
   const { id } = useParams();
-  const { user } = useContext(Auth);
-  const { data: r, error } = usePoll<Run>(() => api("/runs/" + id), [id]);
+  const { user } = useContext(Auth),
+    action = useAction();
+  const { data: r, error } = usePoll<any>(() => api("/runs/" + id), [id]);
   const { data: logs } = usePoll<any>(() => api("/runs/" + id + "/logs"), [id]);
-  const action = useAction();
-  const [tab, setTab] = useState("overview");
-  const [priority, setPriority] = useState(0);
+  const [tab, setTab] = useState("progress"),
+    [priority, setPriority] = useState(0);
+  if (!r)
+    return (
+      <>
+        <ErrorBox error={error} />
+        <p>Loading run…</p>
+      </>
+    );
   return (
     <>
-      {r ? (
-        <>
-          <PageHead
-            eyebrow={"EXPERIMENT / " + r.id.slice(0, 8)}
-            title={r.name}
-            description={`${r.spec.task} · ${r.spec.motion.label}`}
-            action={
-              <div className="actions">
-                <Link className="button secondary" to={"/runs/" + id + "/code"}>
-                  <Code2 size={16} />
-                  View training code
-                </Link>
-                {active(r) && (
-                  <Button
-                    variant="danger"
-                    disabled={action.busy || !!r.cancel}
-                    onClick={() =>
-                      action.run(
-                        () => api("/runs/" + id + "/cancel", "POST"),
-                        "Stop requested",
-                      )
-                    }
-                  >
-                    {r.cancel ? "Stopping…" : "Stop training"}
-                    <X size={16} />
-                  </Button>
-                )}
-                {user?.role === "admin" && r.status === "FAILED" && (
-                  <Button
-                    onClick={() =>
-                      action.run(
-                        () => api("/admin/runs/" + id + "/retry", "POST"),
-                        "Retry queued",
-                      )
-                    }
-                  >
-                    <RefreshCw size={16} />
-                    Retry
-                  </Button>
-                )}
-              </div>
-            }
-          />
-          <ErrorBox error={error || action.error} />
-          {r.execution?.mock && (
-            <div className="warning">
-              <FlaskConical size={18} />
-              Simulated demonstration. Metrics and checkpoints are synthetic,
-              not a trained robot policy.
-            </div>
-          )}
-          {r.worker_online === false && active(r) && (
-            <div className="warning">
-              <AlertCircle size={18} />
-              Worker disconnected. This run retains its allocation and will not
-              be retried automatically.
-            </div>
-          )}
-          {r.quarantined && (
-            <div className="error">
-              Server quarantined. An administrator must reconcile the existing
-              processes.
-            </div>
-          )}
-          {r.error && <div className="error">{r.error}</div>}
-          <div className="run-status panel">
-            <div>
-              <Badge status={r.status} />
-              <span>
-                {r.queue_position
-                  ? `Position ${r.queue_position} in the queue`
-                  : r.server_name || "Waiting for automatic placement"}
-              </span>
-            </div>
-            <span className="muted">
-              {r.email} · Created {date(r.created)}
-            </span>
-          </div>
-          <div className="stats four">
-            <Stat
-              label="Iteration"
-              value={
-                <>
-                  {r.iteration.toLocaleString()}
-                  <em> / {r.spec.iterations.toLocaleString()}</em>
-                </>
-              }
-              icon={Activity}
-            />
-            <Stat label="Elapsed" value={duration(r)} icon={Clock} />
-            <Stat
-              label="Environments"
-              value={r.spec.num_envs.toLocaleString()}
-              icon={Layers}
-            />
-            <Stat
-              label="GPU memory"
-              value={r.gpu_mb ? `${(r.gpu_mb / 1024).toFixed(1)} GiB` : "—"}
-              detail={
-                r.execution?.mps
-                  ? "MPS client enabled"
-                  : "Reported process allocation"
-              }
-              icon={Cpu}
-            />
-          </div>
-          <div className="tabs">
-            <button
-              className={tab === "overview" ? "selected" : ""}
-              onClick={() => setTab("overview")}
-            >
-              Overview & metrics
-            </button>
-            <button
-              className={tab === "logs" ? "selected" : ""}
-              onClick={() => setTab("logs")}
-            >
-              Live logs
-            </button>
-            <button
-              className={tab === "artifacts" ? "selected" : ""}
-              onClick={() => setTab("artifacts")}
-            >
-              Results & checkpoints <span>{r.artifacts?.length || 0}</span>
-            </button>
-            <Link to={"/runs/" + id + "/code"}>
-              Code <ArrowUpRight size={14} />
-            </Link>
-          </div>
-          {tab === "overview" && (
-            <>
-              <section className="panel">
-                <div className="section-title">
-                  <div>
-                    <h2>Learning progress</h2>
-                    <p>Mean reward · locally collected training metrics</p>
-                  </div>
-                  <span className="live-label">
-                    <i className="online-dot" />
-                    Updates every 3 seconds
-                  </span>
-                </div>
-                <Chart metrics={r.metrics} />
-                <div className="chart-footer">
-                  <span>Iteration progress</span>
-                  <b>{Math.round((r.iteration / r.spec.iterations) * 100)}%</b>
-                  <progress value={r.iteration} max={r.spec.iterations} />
-                </div>
-              </section>
-              <div className="two-col">
-                <section className="panel details">
-                  <h3>Training configuration</h3>
-                  <dl>
-                    <dt>Motion artifact</dt>
-                    <dd className="mono">{r.spec.motion.artifact}</dd>
-                    <dt>Seed</dt>
-                    <dd>{r.spec.seed}</dd>
-                    <dt>Learning rate</dt>
-                    <dd>{r.spec.learning_rate ?? "Task default"}</dd>
-                    <dt>Reward overrides</dt>
-                    <dd>
-                      {Object.entries(r.spec.rewards)
-                        .map(([k, v]) => `${k}: ${v}`)
-                        .join(", ") || "Task defaults"}
-                    </dd>
-                  </dl>
-                </section>
-                <section className="panel details">
-                  <h3>Compute & reproducibility</h3>
-                  <dl>
-                    <dt>Assigned server</dt>
-                    <dd>{r.server_name || "Automatic · pending"}</dd>
-                    <dt>GPU</dt>
-                    <dd className="mono">{r.gpu || "Pending"}</dd>
-                    <dt>Execution</dt>
-                    <dd>
-                      {r.execution?.mock
-                        ? "Mock worker"
-                        : r.execution?.mps
-                          ? "CUDA MPS"
-                          : "Standard CUDA"}
-                    </dd>
-                    <dt>Source</dt>
-                    <dd>
-                      <Link to={"/runs/" + id + "/code"}>
-                        Immutable source snapshot <ArrowUpRight size={13} />
-                      </Link>
-                    </dd>
-                  </dl>
-                </section>
-              </div>
-              {user?.role === "admin" && r.status === "QUEUED" && (
-                <section className="panel details">
-                  <h3>Queue priority</h3>
-                  <p>
-                    Higher values run first; waiting time increases priority
-                    automatically.
-                  </p>
-                  <div className="inline-form">
-                    <input
-                      aria-label="Queue priority"
-                      type="number"
-                      min={-100}
-                      max={100}
-                      value={priority}
-                      onChange={(e) => setPriority(Number(e.target.value))}
-                    />
-                    <Button
-                      disabled={action.busy}
-                      onClick={() =>
-                        action.run(() =>
-                          api("/admin/runs/" + id + "/priority", "POST", {
-                            priority,
-                          }),
-                        )
-                      }
-                    >
-                      Set priority
-                    </Button>
-                  </div>
-                </section>
-              )}
-            </>
-          )}
-          {tab === "logs" && (
-            <section className="panel">
-              <div className="section-title">
-                <h2>Training output</h2>
-                <a
-                  className="button secondary"
-                  href={"/api/runs/" + id + "/logs/download"}
-                >
-                  <Download size={15} />
-                  Download logs
-                </a>
-              </div>
-              <pre className="terminal">
-                {logs?.text || "Waiting for worker output…"}
-              </pre>
-            </section>
-          )}
-          {tab === "artifacts" && (
-            <section className="panel">
-              <div className="section-title">
-                <div>
-                  <h2>Run artifacts</h2>
-                  <p>
-                    Checkpoints, resolved configuration, and execution metadata.
-                  </p>
-                </div>
-                <a
-                  href={"/api/code/" + id + "/download"}
-                  className="button secondary"
-                >
-                  <Download size={15} />
-                  Source ZIP
-                </a>
-              </div>
-              {r.artifacts?.length ? (
-                <div className="artifact-list">
-                  {r.artifacts.map((a) => (
-                    <a
-                      key={a.path}
-                      href={
-                        "/api/runs/" +
-                        id +
-                        "/artifacts?path=" +
-                        encodeURIComponent(a.path)
-                      }
-                    >
-                      <span className="resource-icon">
-                        <Download size={18} />
-                      </span>
-                      <div>
-                        <b>{a.path}</b>
-                        <small>
-                          {(a.size / 1024).toFixed(1)} KiB · SHA256{" "}
-                          {a.sha256.slice(0, 16)}
-                        </small>
-                      </div>
-                      <Download size={17} />
-                    </a>
-                  ))}
-                </div>
-              ) : (
-                <Empty title="No artifacts published yet">
-                  <p>Artifacts are uploaded when the run finishes or stops.</p>
-                </Empty>
-              )}
-            </section>
-          )}
-        </>
-      ) : (
-        <>
-          <ErrorBox error={error} />
-          <p className="loading">Loading experiment…</p>
-        </>
-      )}
-    </>
-  );
-}
-
-function CodePage() {
-  const { id } = useParams();
-  const key = id || "base";
-  const { data: run } = usePoll<Run | null>(
-    () => (id ? api("/runs/" + id) : Promise.resolve(null)),
-    [id],
-    10000,
-  );
-  const { data, error } = usePoll<any>(
-    () => api("/code/" + key + "/tree"),
-    [key],
-    30000,
-  );
-  const [file, setFile] = useState("");
-  const [search, setSearch] = useState("");
-  const [content, setContent] = useState<{ content: string; sha256: string }>();
-  const [fileError, setFileError] = useState("");
-  const notify = useContext(Notice);
-  useEffect(() => {
-    if (data && !file)
-      setFile(
-        data.files.find((p: string) =>
-          p.endsWith("tracking/config/k1/env_cfgs.py"),
-        ) || "hub_launch.py",
-      );
-  }, [data]);
-  useEffect(() => {
-    if (file) {
-      setContent(undefined);
-      setFileError("");
-      api("/code/" + key + "/file?path=" + encodeURIComponent(file))
-        .then(setContent)
-        .catch((e) => setFileError(e.message));
-    }
-  }, [file, key]);
-  const highlight = content ? hljs.highlightAuto(content.content).value : "";
-  return (
-    <>
-      <PageHead
-        eyebrow={id ? "EXACT RUN SOURCE" : "WORKSHOP SOURCE"}
-        title={id ? "The code behind this run." : "Learn what makes it move."}
-        description={
-          id
-            ? "Read-only, hashed source used to execute this experiment."
-            : "Explore the Booster K1 task, rewards, and training infrastructure before your first experiment."
-        }
+      <Head
+        title={r.name}
+        text={r.spec.motion.label + " · Booster K1 tracking"}
         action={
-          <a
-            href={"/api/code/" + key + "/download"}
-            className="button secondary"
-          >
-            <Download size={16} />
-            Download source ZIP
-          </a>
+          <div className="actions">
+            <a
+              className="button secondary"
+              href={REPO}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <Code2 size={16} />
+              Repository
+            </a>
+            {active(r) && (
+              <Button
+                variant="danger"
+                disabled={action.busy || r.cancel}
+                onClick={() =>
+                  action.run(
+                    () => api("/runs/" + id + "/cancel", "POST"),
+                    "Stop requested",
+                  )
+                }
+              >
+                {r.cancel ? "Stopping…" : "Stop training"}
+                <X size={16} />
+              </Button>
+            )}
+            {user?.role === "admin" && r.status === "FAILED" && (
+              <Button
+                onClick={() =>
+                  action.run(
+                    () => api("/admin/runs/" + id + "/retry", "POST"),
+                    "Retry queued",
+                  )
+                }
+              >
+                Retry
+              </Button>
+            )}
+          </div>
         }
       />
-      <ErrorBox error={error} />
-      {data && (
+      <ErrorBox error={error || action.error || r.error} />
+      {r.execution?.mock && (
+        <div className="warning">This is an archived simulated run.</div>
+      )}
+      {r.worker_online === false && active(r) && (
+        <div className="warning">
+          Worker disconnected. This run will not be retried automatically.
+        </div>
+      )}
+      <div className="run-status panel">
+        <div>
+          <Badge status={r.status} />
+          <span>
+            {r.queue_position
+              ? `Queue position ${r.queue_position}`
+              : r.server_name || "Waiting for compute"}
+          </span>
+        </div>
+        <span>
+          {r.email} · {date(r.created)}
+        </span>
+      </div>
+      <div className="stats four">
+        <Stat
+          label="Iterations"
+          value={`${r.iteration} / ${r.spec.iterations}`}
+        />
+        <Stat label="Environments" value={r.spec.num_envs.toLocaleString()} />
+        <Stat label="Elapsed" value={duration(r)} />
+        <Stat
+          label="GPU memory"
+          value={r.gpu_mb ? `${(r.gpu_mb / 1024).toFixed(1)} GiB` : "—"}
+        />
+      </div>
+      <div className="tabs">
+        {["progress", "logs", "results"].map((t) => (
+          <button
+            key={t}
+            className={tab === t ? "selected" : ""}
+            onClick={() => setTab(t)}
+          >
+            {t[0].toUpperCase() + t.slice(1)}
+          </button>
+        ))}
+        <a
+          href={"/api/runs/" + id + "/tensorboard/"}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Open TensorBoard <ExternalLink size={14} />
+        </a>
+      </div>
+      {tab === "progress" && (
         <>
-          <div className="source-meta panel">
-            <span>
-              <ShieldCheck size={17} />
-              Frozen source snapshot
-            </span>
-            {Object.entries(data.manifest.commits).map(([k, v]: any) => (
-              <span key={k}>
-                {k} <code>{v.slice(0, 12)}</code>
-              </span>
-            ))}
-          </div>
-          <div className="code-shortcuts">
-            {[
-              [
-                "Robot task",
-                "booster_mjlab/src/booster_mjlab/tasks/tracking/config/k1/env_cfgs.py",
-              ],
-              [
-                "Reward functions",
-                "mjlab/src/mjlab/tasks/tracking/mdp/rewards.py",
-              ],
-              [
-                "Training config",
-                "booster_mjlab/src/booster_mjlab/tasks/tracking/config/k1/rl_cfg.py",
-              ],
-              ["Run config", "hub_config.json"],
-              ["Launch code", "hub_launch.py"],
-              ["Dependencies", "booster_mjlab/uv.lock"],
-            ].map(([label, path]) => (
-              <button
-                key={label}
-                onClick={() => setFile(path)}
-                className={file === path ? "selected" : ""}
+          <section className="panel">
+            <div className="section-title">
+              <h2>Mean reward</h2>
+              <a
+                href={"/api/runs/" + id + "/tensorboard/"}
+                target="_blank"
+                rel="noreferrer"
+                className="button secondary"
               >
-                {label}
-              </button>
-            ))}
-          </div>
-          <section className="code-explorer">
-            <aside>
-              <div className="code-tree-head">
-                <Code2 size={16} />
-                SOURCE EXPLORER
-              </div>
-              <div className="search">
-                <Search size={15} />
-                <input
-                  aria-label="Find source file"
-                  placeholder="Find a file…"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-              </div>
-              <div className="file-tree">
-                {data.files
-                  .filter((p: string) =>
-                    p.toLowerCase().includes(search.toLowerCase()),
-                  )
-                  .map((p: string) => (
-                    <button
-                      className={p === file ? "selected" : ""}
-                      key={p}
-                      title={p}
-                      onClick={() => setFile(p)}
-                    >
-                      <span>{p.split("/").slice(0, -1).join("/")}/</span>
-                      <b>{p.split("/").at(-1)}</b>
-                    </button>
-                  ))}
-              </div>
-            </aside>
-            <div className="code-main">
-              <div className="code-toolbar">
-                <span className="mono">{file}</span>
-                <button
-                  disabled={!content}
-                  onClick={async () => {
-                    await navigator.clipboard.writeText(content!.content);
-                    notify("File copied");
-                  }}
-                >
-                  <Copy size={15} />
-                  Copy file
-                </button>
-              </div>
-              <ErrorBox error={fileError} />
-              {content ? (
-                <pre className="code-view">
-                  <code dangerouslySetInnerHTML={{ __html: highlight }} />
-                </pre>
-              ) : (
-                <p className="loading">
-                  {fileError
-                    ? "Select a text file to continue."
-                    : "Loading source…"}
-                </p>
-              )}
-              <div className="code-hash mono">
-                SHA256 {content?.sha256 || "—"}
-              </div>
+                TensorBoard <ExternalLink size={15} />
+              </a>
+            </div>
+            <RewardChart metrics={r.metrics} />
+            <div className="chart-footer">
+              Training progress
+              <progress value={r.iteration} max={r.spec.iterations} />
             </div>
           </section>
-          {id && (
+          <section className="panel details">
+            <h3>Run details</h3>
+            <dl>
+              <dt>Motion</dt>
+              <dd>{r.spec.motion.label}</dd>
+              <dt>GPU</dt>
+              <dd>{r.gpu || "Pending"}</dd>
+              <dt>Seed</dt>
+              <dd>{r.spec.seed}</dd>
+              <dt>Tracking task</dt>
+              <dd>{r.spec.task}</dd>
+              <dt>Metrics</dt>
+              <dd>
+                {r.tensorboard_available
+                  ? "Available in TensorBoard"
+                  : "Waiting for the first training metrics"}
+              </dd>
+            </dl>
+          </section>
+          {user?.role === "admin" && r.status === "QUEUED" && (
             <section className="panel details">
-              <h3>Exact launch and resolved configuration</h3>
-              <p>
-                The saved <Link to={"/runs/" + id}>run artifacts</Link> include
-                execution.json with the actual argument list, source path,
-                interpreter, MPS environment, resolved mjlab YAML, dependency
-                versions, and motion checksum.
-              </p>
-              <pre className="inline-code">
-                {run?.execution?.argv
-                  ? JSON.stringify(run.execution.argv, null, 2)
-                  : "Awaiting worker launch. Frozen entrypoint: hub_launch.py"}
-              </pre>
+              <h3>Queue priority</h3>
+              <div className="inline-form">
+                <input
+                  aria-label="Priority"
+                  type="number"
+                  value={priority}
+                  min={-100}
+                  max={100}
+                  onChange={(e) => setPriority(Number(e.target.value))}
+                />
+                <Button
+                  onClick={() =>
+                    action.run(() =>
+                      api("/admin/runs/" + id + "/priority", "POST", {
+                        priority,
+                      }),
+                    )
+                  }
+                >
+                  Set priority
+                </Button>
+              </div>
             </section>
           )}
         </>
+      )}
+      {tab === "logs" && (
+        <section className="panel">
+          <div className="section-title">
+            <h2>Training log</h2>
+            <a
+              className="button secondary"
+              href={"/api/runs/" + id + "/logs/download"}
+            >
+              <Download size={15} />
+              Download
+            </a>
+          </div>
+          <pre className="terminal">
+            {logs?.text || "Waiting for worker output…"}
+          </pre>
+        </section>
+      )}
+      {tab === "results" && (
+        <section className="panel">
+          <div className="section-title">
+            <h2>Checkpoints and run files</h2>
+          </div>
+          {r.artifacts?.length ? (
+            <div className="artifact-list">
+              {r.artifacts.map((a: any) => (
+                <a
+                  key={a.path}
+                  href={
+                    "/api/runs/" +
+                    id +
+                    "/artifacts?path=" +
+                    encodeURIComponent(a.path)
+                  }
+                >
+                  <Download size={17} />
+                  <div>
+                    <b>{a.path}</b>
+                    <small>{(a.size / 1024).toFixed(1)} KiB</small>
+                  </div>
+                </a>
+              ))}
+            </div>
+          ) : (
+            <Empty>
+              Checkpoints and configuration files are uploaded when training
+              finishes.
+            </Empty>
+          )}
+        </section>
       )}
     </>
   );
 }
 
+function Repository() {
+  return (
+    <>
+      <Head
+        title="Training repository"
+        text="Booster K1 robot configuration, rewards, and mjlab training code."
+      />
+      <section className="panel details">
+        <a className="button" href={REPO} target="_blank" rel="noreferrer">
+          Open training repository <ExternalLink size={16} />
+        </a>
+      </section>
+    </>
+  );
+}
 function AdminRoutes() {
   return (
     <Routes>
       <Route index element={<AdminOverview />} />
-      <Route path="runs" element={<RunsPage admin />} />
+      <Route path="runs" element={<Runs admin />} />
       <Route path="servers" element={<Servers />} />
       <Route path="users" element={<Participants />} />
       <Route path="settings" element={<WorkshopSettings />} />
@@ -1723,85 +1324,55 @@ function AdminRoutes() {
   );
 }
 function AdminOverview() {
-  const { data, error } = usePoll<any>(() => api("/admin/overview"));
+  const { data: o, error } = usePoll<any>(() => api("/admin/overview"));
   const { data: servers } = usePoll<any[]>(() => api("/admin/servers"));
   const { data: runs } = usePoll<Run[]>(() => api("/runs"));
   const action = useAction();
-  const gpus =
-    servers?.flatMap((s) => (s.online ? s.inventory.gpus || [] : [])) || [];
-  const total = gpus.reduce((a, g) => a + g.total_mb, 0),
-    used = gpus.reduce((a, g) => a + g.total_mb - g.free_mb, 0);
   return (
     <>
-      <PageHead
-        eyebrow="WORKSHOP CONTROL ROOM"
-        title="Keep the workshop moving."
-        description="One queue. Shared compute. A clear view of every experiment."
+      <Head
+        title="Workshop overview"
+        text="Manage participants, compute, and the training queue."
         action={
-          data && (
+          o && (
             <Button
               variant="secondary"
-              disabled={action.busy}
               onClick={() =>
                 action.run(
                   () =>
                     api("/admin/settings", "PUT", {
-                      ...data.settings,
-                      paused: !data.settings.paused,
+                      ...o.settings,
+                      paused: !o.settings.paused,
                     }),
-                  data.settings.paused
+                  o.settings.paused
                     ? "Scheduling resumed"
                     : "Scheduling paused",
                 )
               }
             >
-              {data.settings.paused ? <Play size={16} /> : <Pause size={16} />}{" "}
-              {data.settings.paused ? "Resume queue" : "Pause queue"}
+              {o.settings.paused ? <Play size={16} /> : <Pause size={16} />}{" "}
+              {o.settings.paused ? "Resume queue" : "Pause queue"}
             </Button>
           )
         }
       />
       <ErrorBox error={error || action.error} />
-      {data?.settings.paused && (
+      {o?.settings.paused && (
         <div className="warning">
-          <Pause size={18} />
-          Scheduling paused. Existing runs continue; new jobs stay queued.
+          Scheduling is paused. Running jobs continue.
         </div>
       )}
       <div className="stats four">
-        <Stat
-          label="Participants"
-          value={data?.participants ?? "—"}
-          icon={Users}
-          detail="Registered workshop accounts"
-        />
+        <Stat label="Participants" value={o?.participants ?? 0} />
         <Stat
           label="Running / starting"
-          value={(data?.jobs.RUNNING || 0) + (data?.jobs.STARTING || 0)}
-          icon={Activity}
-          detail={`${data?.jobs.QUEUED || 0} experiments queued`}
+          value={(o?.jobs.RUNNING || 0) + (o?.jobs.STARTING || 0)}
         />
+        <Stat label="Queued" value={o?.jobs.QUEUED || 0} />
         <Stat
-          label="Completed / failed"
-          value={`${data?.jobs.COMPLETED || 0} / ${data?.jobs.FAILED || 0}`}
-          icon={Check}
-          detail="All workshop experiments"
+          label="Concurrent job limit"
+          value={o?.settings.max_running_jobs ?? 10}
         />
-        <Stat
-          label="GPU memory used"
-          value={total ? `${(used / 1024).toFixed(1)} GiB` : "—"}
-          icon={Cpu}
-          detail={`${(total / 1024).toFixed(1)} GiB across online workers · ${gpus.length ? Math.round(gpus.reduce((a, g) => a + g.utilization, 0) / gpus.length) : 0}% avg utilization`}
-        />
-      </div>
-      <div className="section-title outside">
-        <div>
-          <h2>Workshop compute</h2>
-          <p>Live hardware discovery and reserved capacity.</p>
-        </div>
-        <Link to="/admin/servers" className="text-link">
-          Manage compute <ArrowRight size={15} />
-        </Link>
       </div>
       <div className="server-grid">
         {servers?.map((s) => (
@@ -1810,27 +1381,12 @@ function AdminOverview() {
       </div>
       <section className="panel">
         <div className="section-title">
-          <div>
-            <h2>Workshop activity</h2>
-            <p>Latest experiments from every participant.</p>
-          </div>
+          <h2>Recent runs</h2>
           <Link to="/admin/runs" className="text-link">
-            View all <ArrowRight size={15} />
+            All runs <ArrowRight size={15} />
           </Link>
         </div>
-        {runs && <RunTable runs={runs.slice(0, 6)} admin />}
-      </section>
-      <section className="panel details">
-        <h3>Operational audit</h3>
-        <div className="audit-list">
-          {data?.audit.slice(0, 8).map((a: any) => (
-            <div key={a.id}>
-              <span className="mono">{date(a.at)}</span>
-              <b>{a.action}</b>
-              <span className="muted">{a.actor.slice(0, 14)}</span>
-            </div>
-          ))}
-        </div>
+        {runs && <RunTable runs={runs.slice(0, 8)} admin />}
       </section>
     </>
   );
@@ -1843,51 +1399,40 @@ function ServerCard({
   onEdit?: () => void;
 }) {
   return (
-    <div className="server-card">
+    <section className="server-card">
       <div className="server-card-head">
-        <span className="server-icon">
-          <Server size={20} />
-        </span>
-        <div>
-          <h3>{s.name}</h3>
-          <small>{s.inventory.hostname || "Awaiting first heartbeat"}</small>
-        </div>
+        <Server size={19} />
+        <h3>{s.name}</h3>
         <Badge
           status={
             s.quarantined ? "QUARANTINED" : s.online ? "ONLINE" : "OFFLINE"
           }
         />
       </div>
-      {(s.inventory.gpus || []).map((g: any) => {
-        const limits = { ...s.config, ...s.config.gpu_limits?.[g.uuid] };
-        return (
-          <div className="gpu" key={g.uuid}>
-            <div className="gpu-label">
-              <b>{g.name}</b>
-              <span>{g.utilization}% util.</span>
-            </div>
-            <progress max={g.total_mb} value={g.total_mb - g.free_mb} />
-            <div className="gpu-memory">
-              <span>
-                {((g.total_mb - g.free_mb) / 1024).toFixed(1)} /{" "}
-                {(g.total_mb / 1024).toFixed(1)} GiB
-              </span>
-              <span>{(limits.reserve_mb / 1024).toFixed(0)} GiB reserved</span>
-            </div>
-            <small className="mono gpu-uuid">{g.uuid}</small>
+      {s.inventory.gpus?.map((g: any) => (
+        <div className="gpu" key={g.uuid}>
+          <div className="gpu-label">
+            <b>{g.name}</b>
+            <span>{g.utilization}% utilization</span>
           </div>
-        );
-      })}
+          <progress value={g.total_mb - g.free_mb} max={g.total_mb} />
+          <div className="gpu-memory">
+            <span>
+              {((g.total_mb - g.free_mb) / 1024).toFixed(1)} /{" "}
+              {(g.total_mb / 1024).toFixed(1)} GiB
+            </span>
+            <span>{s.config.reserve_mb / 1024} GiB reserved</span>
+          </div>
+        </div>
+      ))}
       {!s.inventory.gpus?.length && (
-        <div className="gpu muted">No hardware reported</div>
+        <div className="gpu muted">Waiting for worker heartbeat</div>
       )}
       <div className="server-info">
         <span>
-          <Layers size={14} />
-          {s.active_jobs} active · max {s.config.max_jobs}/GPU
+          {s.active_jobs} active · max {s.config.max_jobs} per GPU
         </span>
-        <span className={s.inventory.mps?.ready ? "mps-on" : ""}>
-          <Zap size={14} />
+        <span>
           MPS{" "}
           {s.inventory.mps?.ready
             ? "ready"
@@ -1898,145 +1443,32 @@ function ServerCard({
       </div>
       {s.inventory.mock && <div className="mock-label">SIMULATED WORKER</div>}
       <div className="server-card-foot">
-        <span>
-          <i className={"online-dot " + (!s.config.enabled ? "gray" : "")} />
-          {s.config.enabled ? "Accepting jobs" : "New jobs disabled"}
-        </span>
+        <span>{s.config.enabled ? "Enabled" : "Disabled"}</span>
         {onEdit && (
           <button onClick={onEdit}>
             Configure <Settings2 size={14} />
           </button>
         )}
       </div>
-    </div>
+    </section>
   );
 }
-function Field({
-  label,
-  value,
-  onChange,
-  type = "number",
-  min = 0,
-  max = 1000000,
-  step = "1",
-}: {
-  label: string;
-  value: any;
-  onChange: (v: any) => void;
-  type?: string;
-  min?: number;
-  max?: number;
-  step?: string;
-}) {
-  return (
-    <label>
-      {label}
-      <input
-        type={type}
-        value={value ?? ""}
-        min={min}
-        max={max}
-        step={step}
-        onChange={(e) =>
-          onChange(type === "number" ? Number(e.target.value) : e.target.value)
-        }
-      />
-    </label>
-  );
-}
-function Toggle({
-  label,
-  value,
-  onChange,
-  detail,
-}: {
-  label: string;
-  value: boolean;
-  onChange: (v: boolean) => void;
-  detail?: string;
-}) {
-  return (
-    <label className="toggle-row">
-      <span>
-        <b>{label}</b>
-        {detail && <small>{detail}</small>}
-      </span>
-      <input
-        type="checkbox"
-        checked={value}
-        onChange={(e) => onChange(e.target.checked)}
-      />
-    </label>
-  );
-}
-const defaultServer = {
-  enabled: true,
-  max_envs: 4096,
-  max_jobs: 1,
-  reserve_mb: 46080,
-  margin_mb: 2048,
-  mode: "direct",
-  institutional_permission: false,
-  mps_enabled: false,
-  mps_required: false,
-  mps_kind: "legacy",
-  mps_pipe: "",
-  mps_log: "",
-  mps_threads: 50,
-  mps_memory_mb: 0,
-  mps_namespace: "",
-  mps_server: "",
-  gpu_limits: {},
-};
 function Servers() {
-  const { data, error } = usePoll<any[]>(() => api("/admin/servers"));
-  const [editing, setEditing] = useState<any>();
-  const [config, setConfig] = useState<any>();
-  const [name, setName] = useState("");
-  const [token, setToken] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
+  const { data: servers, error } = usePoll<any[]>(() => api("/admin/servers"));
+  const [editing, setEditing] = useState<any>(),
+    [config, setConfig] = useState<any>(),
+    [confirmed, setConfirmed] = useState(false);
   const action = useAction();
-  const update = (k: string, v: any) => setConfig({ ...config, [k]: v });
+  const update = (key: string, v: any) => setConfig({ ...config, [key]: v });
   return (
     <>
-      <PageHead
-        eyebrow="COMPUTE INFRASTRUCTURE"
-        title="A home for every experiment."
-        description="Configure GPU capacity, resource reservations, and CUDA MPS per host."
-        action={
-          <Button
-            onClick={() => {
-              setEditing({ new: true });
-              setConfig({ ...defaultServer });
-              setName("");
-            }}
-          >
-            <Plus size={16} />
-            Add server
-          </Button>
-        }
+      <Head
+        title="Compute servers"
+        text="Live GPU usage and scheduling limits for the workshop workers."
       />
       <ErrorBox error={error || action.error} />
-      {token && (
-        <section className="panel details">
-          <h3>Worker enrollment token</h3>
-          <p>Save this securely on the host. It is shown only once.</p>
-          <div className="token-row">
-            <code>{token}</code>
-            <Button
-              variant="secondary"
-              onClick={() => navigator.clipboard.writeText(token)}
-            >
-              <Copy size={15} />
-            </Button>
-            <Button variant="secondary" onClick={() => setToken("")}>
-              Dismiss
-            </Button>
-          </div>
-        </section>
-      )}
       <div className="server-grid">
-        {data?.map((s) => (
+        {servers?.map((s) => (
           <ServerCard
             key={s.id}
             server={s}
@@ -2048,152 +1480,66 @@ function Servers() {
           />
         ))}
       </div>
-      <section className="panel details">
-        <h3>Capacity is reserved before launch</h3>
-        <p>
-          The scheduler accounts for observed external memory, workshop
-          reservations, memory margins, environment limits, and per-GPU
-          concurrency. Disconnected jobs retain their allocations. Shared H100
-          hosts default to reserving 45 GiB for other researchers.
-        </p>
-      </section>
       {editing && config && (
         <div className="modal-backdrop">
           <section className="modal">
             <div className="section-title">
-              <div>
-                <div className="eyebrow">SERVER CONFIGURATION</div>
-                <h2>{editing.new ? "Enroll a new worker" : editing.name}</h2>
-              </div>
+              <h2>{editing.name}</h2>
               <button
-                aria-label="Close server configuration"
+                aria-label="Close server settings"
                 onClick={() => setEditing(undefined)}
               >
                 <X />
               </button>
             </div>
             <div className="modal-content">
-              {editing.new && (
-                <Field
-                  label="Server name"
-                  type="text"
-                  value={name}
-                  onChange={setName}
-                />
-              )}
               <Toggle
-                label="Accept new jobs"
+                label="Enable new jobs"
                 value={config.enabled}
                 onChange={(v) => update("enabled", v)}
               />
               <Toggle
-                label="Host owner permits workshop training"
-                detail="Confirm university policy and allocation before enabling placement."
+                label="Workshop training is authorized on this host"
                 value={config.institutional_permission}
                 onChange={(v) => update("institutional_permission", v)}
               />
-              <label>
-                Host allocation mode
-                <select
-                  value={config.mode}
-                  onChange={(e) => update("mode", e.target.value)}
-                >
-                  <option value="direct">Direct · owner-authorized host</option>
-                  <option value="slurm">
-                    Slurm · worker inside allocated job
-                  </option>
-                </select>
-              </label>
-              <h3>Default GPU limits</h3>
               <div className="form-grid">
-                <Field
-                  label="Concurrent jobs per GPU"
-                  value={config.max_jobs}
-                  onChange={(v) => update("max_jobs", v)}
-                  min={1}
-                  max={18}
-                />
                 <Field
                   label="Maximum environments per job"
                   value={config.max_envs}
-                  onChange={(v) => update("max_envs", v)}
                   min={1}
                   max={16384}
+                  onChange={(v) => update("max_envs", v)}
                 />
                 <Field
-                  label="Reserved for others (MiB)"
+                  label="Concurrent jobs per GPU"
+                  value={config.max_jobs}
+                  min={1}
+                  max={18}
+                  onChange={(v) => update("max_jobs", v)}
+                />
+                <Field
+                  label="Reserved GPU memory (MiB)"
                   value={config.reserve_mb}
                   onChange={(v) => update("reserve_mb", v)}
                 />
                 <Field
-                  label="Memory safety margin (MiB)"
+                  label="Memory margin (MiB)"
                   value={config.margin_mb}
-                  onChange={(v) => update("margin_mb", v)}
                   min={256}
+                  onChange={(v) => update("margin_mb", v)}
                 />
               </div>
-              {editing.inventory?.gpus?.map((g: any) => (
-                <div className="gpu-override" key={g.uuid}>
-                  <h4>
-                    {g.name} <small>{g.uuid.slice(0, 18)}</small>
-                  </h4>
-                  <Toggle
-                    label="Use per-GPU overrides"
-                    value={!!config.gpu_limits?.[g.uuid]}
-                    onChange={(v) => {
-                      const limits = { ...config.gpu_limits };
-                      if (v)
-                        limits[g.uuid] = {
-                          max_jobs: config.max_jobs,
-                          max_envs: config.max_envs,
-                          reserve_mb: config.reserve_mb,
-                          margin_mb: config.margin_mb,
-                        };
-                      else delete limits[g.uuid];
-                      update("gpu_limits", limits);
-                    }}
-                  />
-                  {config.gpu_limits?.[g.uuid] && (
-                    <div className="form-grid">
-                      {[
-                        ["max_jobs", "Concurrent jobs"],
-                        ["max_envs", "Maximum environments"],
-                        ["reserve_mb", "Reserved MiB"],
-                        ["margin_mb", "Margin MiB"],
-                      ].map(([k, label]) => (
-                        <Field
-                          key={k}
-                          label={label}
-                          value={config.gpu_limits[g.uuid][k]}
-                          onChange={(v) =>
-                            update("gpu_limits", {
-                              ...config.gpu_limits,
-                              [g.uuid]: {
-                                ...config.gpu_limits[g.uuid],
-                                [k]: v,
-                              },
-                            })
-                          }
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-              <h3>CUDA Multi-Process Service</h3>
-              <p className="muted">
-                Attach to an existing, explicitly provisioned MPS service. No
-                global compute mode or daemon is changed.
-              </p>
+              <h3>CUDA MPS</h3>
               <Toggle
-                label="Enable MPS clients"
+                label="Use the configured MPS service"
                 value={config.mps_enabled}
                 onChange={(v) => update("mps_enabled", v)}
               />
               {config.mps_enabled && (
                 <>
                   <Toggle
-                    label="Require MPS; otherwise keep jobs queued"
+                    label="Require MPS before starting a job"
                     value={config.mps_required}
                     onChange={(v) => update("mps_required", v)}
                   />
@@ -2203,73 +1549,54 @@ function Servers() {
                       value={config.mps_kind}
                       onChange={(e) => update("mps_kind", e.target.value)}
                     >
-                      <option value="legacy">Legacy MPS v2</option>
+                      <option value="legacy">Legacy</option>
                       <option value="v3">MPS v3</option>
                     </select>
                   </label>
+                  {[
+                    "mps_pipe",
+                    "mps_log",
+                    ...(config.mps_kind === "v3"
+                      ? ["mps_server", "mps_namespace"]
+                      : []),
+                  ].map((k) => (
+                    <Field
+                      key={k}
+                      type="text"
+                      label={k.replaceAll("_", " ")}
+                      value={config[k] || ""}
+                      onChange={(v) => update(k, v)}
+                    />
+                  ))}
                   <Field
-                    label="MPS pipe directory (absolute)"
-                    type="text"
-                    value={config.mps_pipe}
-                    onChange={(v) => update("mps_pipe", v)}
+                    label="Active thread percentage"
+                    value={config.mps_threads}
+                    min={1}
+                    max={100}
+                    onChange={(v) => update("mps_threads", v)}
                   />
                   <Field
-                    label="MPS log directory (absolute)"
-                    type="text"
-                    value={config.mps_log}
-                    onChange={(v) => update("mps_log", v)}
+                    label="Pinned device memory limit (MiB)"
+                    value={config.mps_memory_mb}
+                    onChange={(v) => update("mps_memory_mb", v)}
                   />
-                  <div className="form-grid">
-                    <Field
-                      label="Active thread percentage"
-                      value={config.mps_threads}
-                      onChange={(v) => update("mps_threads", v)}
-                      min={1}
-                      max={100}
-                    />
-                    <Field
-                      label="Pinned device memory limit (MiB; 0 = unset)"
-                      value={config.mps_memory_mb}
-                      onChange={(v) => update("mps_memory_mb", v)}
-                    />
-                  </div>
-                  {config.mps_kind === "v3" && (
-                    <>
-                      <Field
-                        label="MPS v3 named server (site-provisioned)"
-                        type="text"
-                        value={config.mps_server || ""}
-                        onChange={(v) => update("mps_server", v)}
-                      />
-                      <Field
-                        label="MPS v3 namespace (site-provisioned)"
-                        type="text"
-                        value={config.mps_namespace}
-                        onChange={(v) => update("mps_namespace", v)}
-                      />
-                    </>
-                  )}
-                  <div className="info">
-                    {editing.inventory?.mps?.reason ||
-                      "Worker will report MPS readiness on its next heartbeat."}
-                  </div>
                 </>
               )}
+              <p className="info">{editing.inventory.mps?.reason}</p>
               {editing.quarantined && (
                 <div className="reconcile">
-                  <h3>Reconcile interrupted worker</h3>
                   <p>
-                    Check this host and stop all old workshop processes before
+                    Check the host and stop old workshop processes before
                     releasing their allocations.
                   </p>
                   <Toggle
-                    label="I verified all old workshop processes have stopped"
+                    label="All old workshop processes have stopped"
                     value={confirmed}
                     onChange={setConfirmed}
                   />
                   <Button
                     variant="danger"
-                    disabled={!confirmed || action.busy}
+                    disabled={!confirmed}
                     onClick={() =>
                       action.run(async () => {
                         await api(
@@ -2278,34 +1605,27 @@ function Servers() {
                           { confirmed_all_processes_stopped: true },
                         );
                         setEditing(undefined);
-                      }, "Worker reconciled")
+                      }, "Server reconciled")
                     }
                   >
-                    Confirm stopped and release allocations
+                    Release allocations
                   </Button>
                 </div>
               )}
               <ErrorBox error={action.error} />
             </div>
             <div className="modal-footer">
-              <span>Changes apply to future admissions.</span>
+              <span>Applies to future jobs.</span>
               <Button
                 disabled={action.busy}
                 onClick={() =>
                   action.run(async () => {
-                    if (editing.new) {
-                      const r = await api("/admin/servers", "POST", {
-                        name,
-                        config,
-                      });
-                      setToken(r.token);
-                    } else
-                      await api("/admin/servers/" + editing.id, "PUT", config);
+                    await api("/admin/servers/" + editing.id, "PUT", config);
                     setEditing(undefined);
                   })
                 }
               >
-                Save configuration
+                Save settings
               </Button>
             </div>
           </section>
@@ -2316,92 +1636,128 @@ function Servers() {
 }
 
 function Participants() {
-  const { data, error } = usePoll<User[]>(() => api("/admin/users"));
-  const [email, setEmail] = useState("");
-  const [q, setQ] = useState("");
+  const { data: users, error } = usePoll<User[]>(() => api("/admin/users"));
+  const [emails, setEmails] = useState(""),
+    [limit, setLimit] = useState(2048),
+    [edit, setEdit] = useState<User>(),
+    [invite, setInvite] = useState("");
   const action = useAction();
-  const [edit, setEdit] = useState<User>();
-  const filtered =
-    data?.filter((u) => u.email.toLowerCase().includes(q.toLowerCase())) || [];
   return (
     <>
-      <PageHead
-        eyebrow="WORKSHOP COMMUNITY"
-        title="Everyone starts somewhere."
-        description="Approve attendee emails, manage roles, and set individual environment limits."
+      <Head
+        title="Participants"
+        text="Add approved emails and set each participant’s maximum environments. Each person can have one outstanding run."
       />
       <ErrorBox error={error || action.error} />
-      <section className="panel details">
-        <h3>Add an approved attendee</h3>
-        <form
-          className="inline-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            action.run(async () => {
-              await api("/admin/users", "POST", { email });
-              setEmail("");
-            }, "Attendee approved");
-          }}
-        >
-          <input
-            aria-label="Attendee email"
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="participant@university.edu"
-          />
-          <Button type="submit" disabled={action.busy}>
-            <Plus size={16} />
-            Approve email
-          </Button>
-        </form>
-      </section>
-      <section className="panel">
-        <div className="filterbar">
-          <div className="search">
-            <Search size={17} />
-            <input
-              aria-label="Search participants"
-              placeholder="Search participants…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
+      <form
+        className="panel details"
+        onSubmit={(e) => {
+          e.preventDefault();
+          action.run(async () => {
+            const list = emails.split(/[\s,;]+/).filter(Boolean);
+            await api("/admin/users/bulk", "POST", {
+              emails: list,
+              env_limit: limit,
+            });
+            setEmails("");
+          }, "Participants added");
+        }}
+      >
+        <div className="form-grid">
+          <label>
+            Participant emails
+            <textarea
+              required
+              rows={4}
+              value={emails}
+              onChange={(e) => setEmails(e.target.value)}
+              placeholder="One email per line, or separated by commas"
             />
-          </div>
-          <span>{filtered.length} accounts</span>
+          </label>
+          <Field
+            label="Maximum environments"
+            value={limit}
+            min={1}
+            max={16384}
+            onChange={setLimit}
+          />
         </div>
+        <Button type="submit" disabled={action.busy}>
+          <Plus size={16} />
+          Add participants
+        </Button>
+      </form>
+      {invite && (
+        <section className="panel details">
+          <h3>Participant sign-in link</h3>
+          <p>
+            This link expires in 15 minutes and works once. Share it with the
+            intended participant.
+          </p>
+          <div className="token-row">
+            <input readOnly value={invite} />
+            <Button
+              variant="secondary"
+              onClick={() => navigator.clipboard.writeText(invite)}
+            >
+              <Copy size={15} />
+              Copy
+            </Button>
+            <button onClick={() => setInvite("")} aria-label="Dismiss link">
+              <X size={17} />
+            </button>
+          </div>
+        </section>
+      )}
+      <section className="panel">
         <div className="table-scroll">
           <table>
             <thead>
               <tr>
-                <th>Participant</th>
+                <th>Email</th>
                 <th>Role</th>
                 <th>Access</th>
-                <th>Email</th>
                 <th>Environment limit</th>
                 <th />
               </tr>
             </thead>
             <tbody>
-              {filtered.map((u) => (
+              {users?.map((u) => (
                 <tr key={u.id}>
-                  <td>
-                    <b>{u.email}</b>
-                    <small>Joined {date((u as any).created)}</small>
-                  </td>
+                  <td>{u.email}</td>
                   <td>{u.role}</td>
                   <td>
-                    <Badge status={u.approved ? "APPROVED" : "PENDING"} />
+                    <Badge status={u.approved ? "APPROVED" : "DISABLED"} />
                   </td>
-                  <td>{u.verified ? "Verified" : "Unverified"}</td>
-                  <td>{u.env_limit || "Workshop default"}</td>
+                  <td>{u.env_limit?.toLocaleString() || "Workshop default"}</td>
                   <td>
-                    <Button
-                      variant="secondary small"
-                      onClick={() => setEdit({ ...u })}
-                    >
-                      Manage
-                    </Button>
+                    <div className="actions">
+                      <Button
+                        variant="secondary small"
+                        onClick={() => setEdit({ ...u })}
+                      >
+                        Edit
+                      </Button>
+                      {u.approved && (
+                        <Button
+                          variant="secondary small"
+                          onClick={() =>
+                            action.run(async () => {
+                              setInvite(
+                                (
+                                  await api(
+                                    "/admin/users/" + u.id + "/invite",
+                                    "POST",
+                                  )
+                                ).url,
+                              );
+                            }, "")
+                          }
+                        >
+                          Sign-in link
+                        </Button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -2413,39 +1769,28 @@ function Participants() {
         <div className="modal-backdrop">
           <section className="modal compact">
             <div className="section-title">
-              <h2>Manage attendee</h2>
+              <h2>{edit.email}</h2>
               <button
                 onClick={() => setEdit(undefined)}
-                aria-label="Close attendee"
+                aria-label="Close participant settings"
               >
                 <X />
               </button>
             </div>
             <div className="modal-content">
-              <p>{edit.email}</p>
               <Toggle
-                label="Approved for workshop access"
+                label="Approved"
                 value={!!edit.approved}
                 onChange={(v) => setEdit({ ...edit, approved: v })}
               />
               <label>
-                Role
-                <select
-                  value={edit.role}
-                  onChange={(e) => setEdit({ ...edit, role: e.target.value })}
-                >
-                  <option value="participant">Participant</option>
-                  <option value="admin">Administrator</option>
-                </select>
-              </label>
-              <label>
-                Maximum environments (optional)
+                Maximum environments
                 <input
                   type="number"
                   min={1}
                   max={16384}
-                  placeholder="Workshop default"
                   value={edit.env_limit ?? ""}
+                  placeholder="Use workshop default"
                   onChange={(e) =>
                     setEdit({
                       ...edit,
@@ -2454,11 +1799,20 @@ function Participants() {
                   }
                 />
               </label>
+              <label>
+                Role
+                <select
+                  value={edit.role}
+                  onChange={(e) => setEdit({ ...edit, role: e.target.value })}
+                >
+                  <option value="participant">Participant</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </label>
               <ErrorBox error={action.error} />
             </div>
             <div className="modal-footer">
               <Button
-                disabled={action.busy}
                 onClick={() =>
                   action.run(async () => {
                     await api("/admin/users/" + edit.id, "PUT", {
@@ -2470,7 +1824,7 @@ function Participants() {
                   })
                 }
               >
-                Save attendee
+                Save participant
               </Button>
             </div>
           </section>
@@ -2480,23 +1834,22 @@ function Participants() {
   );
 }
 function WorkshopSettings() {
-  const { data, error } = usePoll<any>(() => api("/admin/settings"), [], 20000);
-  const [form, setForm] = useState<any>();
-  const [motionText, setMotionText] = useState("");
+  const { data, error } = usePoll<any>(() => api("/admin/settings"), [], 30000);
+  const [form, setForm] = useState<any>(),
+    [presets, setPresets] = useState("");
   const action = useAction();
   useEffect(() => {
     if (data && !form) {
       setForm(structuredClone(data));
-      setMotionText(JSON.stringify(data.motions, null, 2));
+      setPresets(data.presets.join(", "));
     }
   }, [data]);
-  const update = (k: string, v: any) => setForm({ ...form, [k]: v });
+  const update = (key: string, v: any) => setForm({ ...form, [key]: v });
   return (
     <>
-      <PageHead
-        eyebrow="WORKSHOP CONFIGURATION"
-        title="Set the boundaries for discovery."
-        description="Control participant budgets and approved training parameters without changing source code."
+      <Head
+        title="Workshop settings"
+        text="Set environment limits and the maximum number of concurrent training jobs."
       />
       <ErrorBox error={error || action.error} />
       {form && (
@@ -2507,18 +1860,14 @@ function WorkshopSettings() {
               () =>
                 api("/admin/settings", "PUT", {
                   ...form,
-                  motions: JSON.parse(motionText),
+                  presets: presets.split(",").map((n) => Number(n.trim())),
                 }),
               "Workshop settings saved",
             );
           }}
         >
           <section className="panel details">
-            <h2>Parallel environment limits</h2>
-            <p className="muted">
-              These limits apply to future submissions. Existing runs keep their
-              saved configuration.
-            </p>
+            <h2>Training limits</h2>
             <div className="form-grid">
               <Field
                 label="Default environments"
@@ -2528,6 +1877,13 @@ function WorkshopSettings() {
                 onChange={(v) => update("default_envs", v)}
               />
               <Field
+                label="Maximum environments per participant"
+                value={form.max_envs}
+                min={1}
+                max={16384}
+                onChange={(v) => update("max_envs", v)}
+              />
+              <Field
                 label="Minimum environments"
                 value={form.min_envs}
                 min={1}
@@ -2535,157 +1891,70 @@ function WorkshopSettings() {
                 onChange={(v) => update("min_envs", v)}
               />
               <Field
-                label="Maximum environments"
-                value={form.max_envs}
+                label="Maximum concurrent jobs"
+                value={form.max_running_jobs}
                 min={1}
-                max={16384}
-                onChange={(v) => update("max_envs", v)}
+                max={100}
+                onChange={(v) => update("max_running_jobs", v)}
               />
               <Field
-                label="Maximum iterations"
+                label="Maximum iterations per run"
                 value={form.max_iterations}
                 min={1}
                 max={100000}
                 onChange={(v) => update("max_iterations", v)}
               />
+              <label>
+                Environment presets
+                <input
+                  value={presets}
+                  onChange={(e) => setPresets(e.target.value)}
+                />
+              </label>
             </div>
-            <label>
-              Allowed environment presets (comma separated)
-              <input
-                defaultValue={form.presets.join(", ")}
-                onChange={(e) =>
-                  update(
-                    "presets",
-                    e.target.value.split(",").map((n) => Number(n.trim())),
-                  )
-                }
-              />
-            </label>
+            <p>
+              GPU memory and per-server limits may reduce the number of jobs
+              that can run at once. Existing jobs keep their saved settings.
+            </p>
             <Toggle
-              label="Pause automatic scheduling"
-              detail="Running experiments continue; submissions remain in the queue."
+              label="Pause new job scheduling"
               value={form.paused}
               onChange={(v) => update("paused", v)}
             />
           </section>
           <section className="panel details">
-            <h2>Approved motion artifacts</h2>
-            <p className="muted">
-              Use immutable W&B artifact versions, for example
-              organization/motions/walk:v0. Optional SHA256 verifies motion.npz
-              before training.
-            </p>
-            <label>
-              Motion catalog (JSON)
-              <textarea
-                className="json-editor"
-                rows={10}
-                value={motionText}
-                onChange={(e) => setMotionText(e.target.value)}
-                spellCheck={false}
-              />
-            </label>
-            <small>
-              Each entry: id, label, artifact, and optional sha256. Demo entries
-              work only with mock workers.
-            </small>
-          </section>
-          <section className="panel details">
-            <h2>Memory estimation profile</h2>
-            <p className="muted">
-              Estimated MiB = (base + environments × per-environment MiB) ×
-              safety factor. Calibrate using the benchmark tool and measured
-              training peaks.
+            <h2>Memory estimate</h2>
+            <p>
+              Used for admission until the workload is benchmarked. Each host
+              also keeps its configured reserve and margin.
             </p>
             <div className="form-grid three">
               {[
-                ["base_mb", "Base allocation (MiB)"],
-                ["per_env_mb", "Per environment (MiB)"],
+                ["base_mb", "Base memory (MiB)"],
+                ["per_env_mb", "Memory per environment (MiB)"],
                 ["safety_factor", "Safety factor"],
-              ].map(([k, label]) => (
+              ].map(([key, label]) => (
                 <Field
-                  key={k}
+                  key={key}
                   label={label}
-                  value={form.memory_profiles[k]}
-                  min={k === "safety_factor" ? 1 : 0}
-                  step="any"
+                  value={form.memory_profiles[key]}
+                  min={key === "safety_factor" ? 1 : 0}
                   onChange={(v) =>
                     update("memory_profiles", {
                       ...form.memory_profiles,
-                      [k]: v,
+                      [key]: v,
                     })
                   }
                 />
               ))}
             </div>
           </section>
-          <section className="panel details">
-            <h2>Approved parameter ranges</h2>
-            <div className="form-grid">
-              <Field
-                label="Minimum learning rate"
-                value={form.learning_rate_bounds[0]}
-                min={0.000001}
-                max={0.01}
-                step="any"
-                onChange={(v) =>
-                  update("learning_rate_bounds", [
-                    v,
-                    form.learning_rate_bounds[1],
-                  ])
-                }
-              />
-              <Field
-                label="Maximum learning rate"
-                value={form.learning_rate_bounds[1]}
-                min={0.000001}
-                max={0.01}
-                step="any"
-                onChange={(v) =>
-                  update("learning_rate_bounds", [
-                    form.learning_rate_bounds[0],
-                    v,
-                  ])
-                }
-              />
-            </div>
-            {Object.entries(form.reward_bounds).map(([key, bounds]: any) => (
-              <div className="form-grid" key={key}>
-                <Field
-                  label={key + " · minimum"}
-                  value={bounds[0]}
-                  min={-100}
-                  step="any"
-                  onChange={(v) =>
-                    update("reward_bounds", {
-                      ...form.reward_bounds,
-                      [key]: [v, bounds[1]],
-                    })
-                  }
-                />
-                <Field
-                  label={key + " · maximum"}
-                  value={bounds[1]}
-                  min={-100}
-                  step="any"
-                  onChange={(v) =>
-                    update("reward_bounds", {
-                      ...form.reward_bounds,
-                      [key]: [bounds[0], v],
-                    })
-                  }
-                />
-              </div>
-            ))}
-          </section>
           <div className="savebar">
-            <span>
-              <ShieldCheck size={16} />
-              Settings are validated and recorded in the audit log.
-            </span>
+            <Link to="/motions" className="text-link">
+              Manage motion library <ArrowRight size={14} />
+            </Link>
             <Button type="submit" disabled={action.busy}>
-              {action.busy ? "Saving…" : "Save workshop settings"}
-              <Check size={16} />
+              Save settings <Check size={16} />
             </Button>
           </div>
         </form>
@@ -2695,9 +1964,9 @@ function WorkshopSettings() {
 }
 
 function App() {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [notice, setNotice] = useState("");
+  const [user, setUser] = useState<User | null>(null),
+    [loading, setLoading] = useState(true),
+    [notice, setNotice] = useState("");
   const reload = useCallback(async () => {
     try {
       setUser(await api("/me"));
@@ -2712,15 +1981,15 @@ function App() {
   }, []);
   useEffect(() => {
     if (notice) {
-      const t = setTimeout(() => setNotice(""), 4000);
-      return () => clearTimeout(t);
+      const timer = setTimeout(() => setNotice(""), 4500);
+      return () => clearTimeout(timer);
     }
   }, [notice]);
   if (loading)
     return (
       <div className="boot">
         <Cpu />
-        <span>Opening your workspace…</span>
+        <span>Loading…</span>
       </div>
     );
   return (
@@ -2729,13 +1998,13 @@ function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Login register />} />
+            <Route path="/register" element={<Navigate to="/login" />} />
             <Route path="/*" element={<Shell />} />
           </Routes>
         </BrowserRouter>
         {notice && (
-          <div role="status" className="toast">
-            <Check size={17} />
+          <div className="toast" role="status">
+            <Check size={16} />
             {notice}
           </div>
         )}

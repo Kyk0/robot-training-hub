@@ -76,27 +76,40 @@ def main():
             flush=True,
         )
         return
-    import wandb
+    if spec["motion"]["artifact"].startswith("upload:"):
+        from hub_motion import convert_csv
 
-    artifact = wandb.Api().artifact(spec["motion"]["artifact"])
-    motion_dir = artifact.download(root=str(OUTPUT / "motion"))
-    motion_file = Path(motion_dir) / "motion.npz"
-    checksum = hashlib.sha256(motion_file.read_bytes()).hexdigest()
-    expected = spec["motion"].get("sha256")
-    if expected and expected != checksum:
-        raise ValueError("Approved motion checksum mismatch")
-    (OUTPUT / "motion.json").write_text(
-        json.dumps(
-            {
-                "requested": spec["motion"]["artifact"],
-                "resolved": artifact.qualified_name,
-                "digest": artifact.digest,
-                "sha256": checksum,
-            },
-            indent=2,
+        motion_file = convert_csv(
+            OUTPUT / "motion/input.csv",
+            OUTPUT / "motion/motion.npz",
+            spec["motion"]["fps"],
+            spec["motion"]["sha256"],
         )
-    )
+    else:
+        import wandb
+
+        artifact = wandb.Api().artifact(spec["motion"]["artifact"])
+        motion_dir = artifact.download(root=str(OUTPUT / "motion"))
+        motion_file = Path(motion_dir) / "motion.npz"
+        checksum = hashlib.sha256(motion_file.read_bytes()).hexdigest()
+        expected = spec["motion"].get("sha256")
+        if expected and expected != checksum:
+            raise ValueError("Approved motion checksum mismatch")
+        (OUTPUT / "motion.json").write_text(
+            json.dumps(
+                {
+                    "requested": spec["motion"]["artifact"],
+                    "resolved": artifact.qualified_name,
+                    "digest": artifact.digest,
+                    "sha256": checksum,
+                },
+                indent=2,
+            )
+        )
     cfg.env.commands["motion"].motion_file = str(motion_file)
+    if "--prepare-only" in sys.argv:
+        print("Motion prepared and validated; no GPU training launched.", flush=True)
+        return
     cfg = replace(
         cfg, registry_name=None, log_root=str(OUTPUT / "training"), gpu_ids=[0]
     )

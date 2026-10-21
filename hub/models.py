@@ -12,6 +12,20 @@ class Email(Strict):
     email: EmailStr
 
 
+class PasswordLogin(Strict):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=256)
+
+
+class AddParticipant(Email):
+    env_limit: int | None = Field(default=None, ge=1, le=16384)
+
+
+class ParticipantList(Strict):
+    emails: list[EmailStr] = Field(min_length=1, max_length=200)
+    env_limit: int | None = Field(default=None, ge=1, le=16384)
+
+
 class NewJob(Strict):
     name: str = Field(min_length=1, max_length=80, pattern=r"^[^\x00-\x1f\x7f]+$")
     task: Literal["Mjlab-Tracking-Flat-Booster-K1"] = "Mjlab-Tracking-Flat-Booster-K1"
@@ -49,6 +63,7 @@ class Settings(Strict):
     max_envs: int = Field(ge=1, le=16384)
     presets: list[int] = Field(min_length=1, max_length=16)
     max_iterations: int = Field(ge=1, le=100000)
+    max_running_jobs: int = Field(default=10, ge=1, le=100)
     motions: list[Motion] = Field(max_length=100)
     tasks: list[Literal["Mjlab-Tracking-Flat-Booster-K1"]]
     memory_profiles: MemoryProfile

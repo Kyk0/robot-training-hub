@@ -2,9 +2,39 @@ import argparse
 import json
 import secrets
 import subprocess
+import os
 from pathlib import Path
 from .config import Config, DEFAULT_SERVER
 from .db import DB, digest, now, pack, uid
+from .passwords import hash_password
+
+
+def provision_password(db, email, path):
+    """Generate a password once; never print or pass the secret on a command line."""
+    path = Path(path).resolve()
+    password = secrets.token_urlsafe(27)
+    encoded = hash_password(password)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        add_admin(db, email)
+        with db.tx() as c:
+            c.execute(
+                "UPDATE users SET password_hash=? WHERE email=?",
+                (encoded, email.lower()),
+            )
+            c.execute(
+                "DELETE FROM sessions WHERE user_id=(SELECT id FROM users WHERE email=?)",
+                (email.lower(),),
+            )
+        with os.fdopen(fd, "w") as f:
+            f.write(
+                f"Robot Training Hub\nURL: {db.cfg.public_url}/login\nEmail: {email.lower()}\nPassword: {password}\n\nKeep this file private. This password is not committed to Git.\n"
+            )
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+    return path
 
 
 def add_admin(db, email):
@@ -93,6 +123,12 @@ def main():
     sub = p.add_subparsers(dest="cmd", required=True)
     a = sub.add_parser("admin")
     a.add_argument("email")
+    a = sub.add_parser(
+        "admin-password",
+        help="Generate a new private admin password file (never overwrites)",
+    )
+    a.add_argument("email")
+    a.add_argument("--save", type=Path, required=True)
     a = sub.add_parser("login-link")
     a.add_argument("email")
     a = sub.add_parser("demo")
@@ -103,6 +139,11 @@ def main():
     args = p.parse_args()
     cfg = Config()
     db = DB(cfg)
+    if args.cmd == "admin-password":
+        print(
+            "Admin password saved privately to "
+            + str(provision_password(db, args.email, args.save))
+        )
     if args.cmd == "admin":
         add_admin(db, args.email)
         print(

@@ -2,6 +2,12 @@
 
 A runnable React + TypeScript / FastAPI workshop platform for Booster K1 motion-tracking RL. SQLite owns the durable queue; outbound Python workers discover GPUs and execute frozen source snapshots using each host's existing Booster mjlab environment. No SSH access is given to participants.
 
+## Real workshop on this Mac
+
+Open <http://127.0.0.1:8000/login>. The organizer signs in with their email and generated password, saved privately in `data/workshop/admin-credentials.txt`. Admin → Participants approves emails and sets per-participant environment limits. The initial maximum is **2048 environments** and the adjustable global concurrent-job cap is **10**. The **Motions** page includes the real Booster MJ dance CSV, an interactive K1 preview, and CSV upload. Each run links to its authenticated TensorBoard and the training repository.
+
+See [real workshop setup and commands](docs/REAL_WORKSHOP.md) for the three existing hosts, persistent services, private tunnels, email/HTTPS setup, and password recovery. `scripts/workshop.sh services` starts the Mac coordinator and connections; `scripts/workshop.sh serve` runs the real coordinator in the foreground. Demo mode below uses a separate database and must not run on the same port at the same time.
+
 ## Quick local demonstration
 
 Requirements: Python 3.12+, uv, Git, Node 22+ and npm. The coordinator does not need CUDA.
@@ -37,8 +43,8 @@ Development email messages are written to private `data/mail/*.json`. Production
 
 ## Included functionality
 
-- Single-use, expiring magic links; approved-email allowlist; participant/admin authorization; opaque hashed sessions; secure HttpOnly cookies with HTTPS; origin and custom-header CSRF checks; email request throttling.
-- Participant dashboard, training submission, run list, live progress/reward curves/logs, stop requests, results, downloads, and syntax-highlighted source explorer.
+- Generated admin passwords stored as salted scrypt hashes; single-use, expiring magic links; approved-email allowlist; participant/admin authorization; opaque hashed sessions; secure HttpOnly cookies with HTTPS; origin and custom-header CSRF checks; login throttling. Admins can generate participant invitations without SMTP.
+- Participant dashboard, training submission, run list, live progress/reward curves/logs, stop requests, results, source ZIP downloads, and a training repository link. Real CSV upload, approval, browser playback with the actual K1 meshes, and pinned Booster motion conversion. Per-run authenticated TensorBoard with streamed event files.
 - `/admin`, `/admin/runs`, `/admin/servers`, `/admin/users`, `/admin/settings`: searchable runs, all-user inspection, priority, retry confirmed failures, cancellation, queue pause, attendee approval, per-user environment maximums, server/per-GPU limits, reserves, MPS settings, and audit history.
 - Transactional partial unique SQLite index allows at most one QUEUED/STARTING/RUNNING job per user, including concurrent requests. A cancellation request retains the slot until a running process has actually exited.
 - Durable best-fit GPU admission with configurable memory model, measured external memory, outstanding reservations, per-GPU concurrency, fairness through waiting-time priority, heartbeats, and worker quarantine.
@@ -62,7 +68,7 @@ uv run train Mjlab-Tracking-Flat-Booster-K1 \
 
 This project's launcher uses the actual `TrainConfig.from_task`, `env.scene.num_envs`, `agent.max_iterations`, `agent.algorithm.learning_rate`, and `env.rewards[name].weight` configuration mechanisms. It invokes Booster's serialization patch and mjlab's existing `launch_training`. It does not implement PPO or invent reward CLI flags. The task's existing MuonPPO runner remains in use. Seed 42 is explicit; approved numeric overrides are applied before training. Exact resolved `env.yaml` and `agent.yaml` are saved by mjlab, and uploaded as artifacts. A W&B API key may be needed to retrieve approved motion artifacts, even with TensorBoard logging.
 
-Motion catalog entries in admin settings must use immutable `:vN` versions, never `:latest`. Supply a SHA256 for `motion.npz` when known. The launcher retrieves the version, checks the optional checksum, and records the resolved artifact identity, W&B digest and actual SHA256. Workshop demo entries must be replaced with real approved artifacts for GPU workers.
+CSV motions are managed on the Motions page; the launcher checks their SHA256, converts using Booster's resampling/forward-kinematics utilities, and validates with the actual mjlab tracking MotionLoader. No W&B account is needed for CSV training. The optional API-managed W&B catalog requires immutable `:vN` versions, never `:latest`, and records artifact identity, digest, and actual checksum. Supply a SHA256 for `motion.npz` when known.
 
 The frozen source imports override the installed Booster/mjlab packages; other dependencies come from the existing host virtual environment. All package versions and actual module locations are recorded. Keep that training environment stable during the workshop. Source checksums provide tamper detection; read-only POSIX files are an accidental-write barrier, not a security boundary against the service account or root. No participant code runs, and future custom reward Python requires a separate sandbox.
 

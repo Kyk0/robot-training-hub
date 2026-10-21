@@ -158,6 +158,9 @@ def create_snapshot(cfg, key, spec):
     (root / "mock_train.py").write_bytes(
         Path(__file__).with_name("mock_train.py").read_bytes()
     )
+    (root / "hub_motion.py").write_bytes(
+        Path(__file__).with_name("csv_motion.py").read_bytes()
+    )
     hashes = {
         str(p.relative_to(root)): sha(p.read_bytes())
         for p in root.rglob("*")

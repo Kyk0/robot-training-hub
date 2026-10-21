@@ -2503,3 +2503,129 @@ dd.mono {
   margin-top: 12px;
   line-height: 1.7;
 }
+.auth-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin: 40px 0;
+  color: #bad2ad;
+  font-size: 13px;
+}
+.auth-copy > .text-link {
+  color: #b1d18b;
+}
+.motion-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.motion-item {
+  display: block;
+  width: 100%;
+  padding: 18px;
+  text-align: left;
+  border-bottom: 1px solid #e4eadb;
+}
+.motion-item.selected {
+  background: #edf4e4;
+}
+.motion-item b {
+  display: block;
+  font-size: 13px;
+}
+.motion-item small {
+  display: block;
+  margin: 6px 0 10px;
+  color: #8a9c7a;
+  font-size: 10px;
+}
+.motion-preview {
+  position: relative;
+}
+.motion-canvas {
+  width: 100%;
+  height: 410px;
+}
+.motion-canvas canvas {
+  display: block;
+}
+.motion-controls {
+  padding: 15px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #fbfcf8;
+  border-top: 1px solid #e1e9d6;
+}
+.motion-controls button {
+  padding: 5px;
+  display: flex;
+}
+.motion-controls input[type="range"] {
+  padding: 0;
+  flex: 1;
+  border: 0;
+  accent-color: #628e51;
+}
+.motion-controls span {
+  white-space: nowrap;
+  font-size: 10px;
+  color: #8c9d7d;
+}
+.motion-controls select {
+  width: 64px;
+  padding: 6px;
+  font-size: 10px;
+}
+.viewer-note {
+  padding: 0 18px 15px;
+  font-size: 10px;
+  background: #fbfcf8;
+}
+.viewer-message {
+  position: absolute;
+  inset: 0 0 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f1f4edbb;
+  font-size: 13px;
+  color: #82966f;
+}
+.upload-form > p {
+  font-size: 11px;
+  margin: 16px 0;
+}
+.upload-form input[type="file"] {
+  padding: 8px;
+  font-size: 11px;
+}
+@media (max-width: 960px) {
+  .motion-layout {
+    grid-template-columns: 1fr;
+  }
+  .motion-library {
+    display: flex;
+    overflow: auto;
+  }
+  .motion-item {
+    min-width: 200px;
+    border-right: 1px solid #e4eadb;
+  }
+  .motion-canvas {
+    height: 350px;
+  }
+}
+@media (max-width: 700px) {
+  .motion-controls {
+    gap: 7px;
+    padding: 12px 8px;
+  }
+  .motion-controls span {
+    font-size: 8px;
+  }
+  .motion-canvas {
+    height: 320px;
+  }
+}
