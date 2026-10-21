@@ -10,6 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 INCLUDE = [
     "hub",
     "frontend/src",
+    "public-site",
+    ".github/workflows",
     "frontend/dist",
     "frontend/package.json",
     "frontend/package-lock.json",

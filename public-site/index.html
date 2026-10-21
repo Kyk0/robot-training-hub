@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#171c32" />
+    <meta
+      name="description"
+      content="A hands-on Booster K1 humanoid robotics workshop. Preview motions, train with mjlab, and explore the results."
+    />
+    <title>Robot Training Hub · Booster K1 Workshop</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="site-config.js" defer></script>
+    <script src="site.js" defer></script>
+  </head>
+  <body>
+    <header class="site-nav">
+      <a class="brand" href="./"
+        ><span class="brand-icon">R<span>·</span></span
+        >Robot Training <b>Hub</b></a
+      >
+      <nav>
+        <a href="#how-it-works">The workshop</a
+        ><a
+          href="https://github.com/IntelligentRoboticsLab/booster_mjlab"
+          target="_blank"
+          rel="noreferrer"
+          >Training code <span>↗</span></a
+        ><a class="nav-launch" data-launch>Open workshop ↗</a>
+      </nav>
+    </header>
+    <main>
+      <section class="hero">
+        <div class="hero-copy">
+          <div class="eyebrow"><span></span>BOOSTER K1 · MJLAB WORKSHOP</div>
+          <h1>A little motion.<br />A world of<br /><em>possibility.</em></h1>
+          <p>
+            Bring humanoid motion to life. Preview a reference, train your own
+            tracking policy, and explore what your robot learns—all from your
+            browser.
+          </p>
+          <div class="hero-actions">
+            <a class="button" data-launch>Enter the workshop <span>↗</span></a
+            ><a href="#how-it-works" class="secondary"
+              >How it works <span>↓</span></a
+            >
+          </div>
+          <p class="access-note" id="access-note">
+            Private workshop · Access provided by your organizer
+          </p>
+        </div>
+        <div class="hero-art">
+          <div class="art-orbit"></div>
+          <img
+            src="robot.svg"
+            alt="Illustration of a humanoid robot"
+            width="480"
+            height="460"
+          />
+          <div class="robot-label">
+            <span></span>
+            <div>Booster K1<small>Humanoid motion tracking</small></div>
+          </div>
+          <span class="art-caption">EXPLORE · EXPERIMENT · LEARN</span>
+        </div>
+      </section>
+      <section class="facts" aria-label="Workshop tools">
+        <div>
+          <strong>Booster K1</strong><span>Your humanoid platform</span>
+        </div>
+        <div>
+          <strong>mjlab</strong
+          ><span>Motion-tracking reinforcement learning</span>
+        </div>
+        <div>
+          <strong>1K · 2K · 4K</strong
+          ><span>Environment sizes, managed by your admin</span>
+        </div>
+        <div>
+          <strong>TensorBoard</strong><span>Follow every experiment</span>
+        </div>
+      </section>
+      <section class="workflow" id="how-it-works">
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">FROM REFERENCE TO REINFORCEMENT</span>
+            <h2>Your next experiment<br />starts here.</h2>
+          </div>
+          <p>
+            No laptop training environment to install.<br />No server to pick.
+            Just a motion and a question.
+          </p>
+        </div>
+        <div class="step-grid">
+          <article>
+            <span class="step-number">01</span>
+            <div class="step-symbol">↻</div>
+            <h3>Preview your motion</h3>
+            <p>
+              Upload a K1 motion CSV, see it on the robot in 3D, and choose an
+              approved reference.
+            </p>
+          </article>
+          <article>
+            <span class="step-number">02</span>
+            <div class="step-symbol">⌁</div>
+            <h3>Start an experiment</h3>
+            <p>
+              Pick your training size and iterations. The queue assigns
+              available GPU capacity automatically.
+            </p>
+          </article>
+          <article>
+            <span class="step-number">03</span>
+            <div class="step-symbol">↗</div>
+            <h3>See what it learns</h3>
+            <p>
+              Watch progress and TensorBoard, then download your checkpoint and
+              the exact run source.
+            </p>
+          </article>
+        </div>
+      </section>
+      <section class="start-card">
+        <div>
+          <span class="eyebrow">A WORKSPACE FOR CURIOUS MINDS</span>
+          <h2>Make your next move.</h2>
+          <p>Approved participants sign in directly on the training server.</p>
+        </div>
+        <a class="button" data-launch>Open Robot Training Hub <span>↗</span></a>
+      </section>
+    </main>
+    <footer>
+      <a class="brand" href="./"
+        ><span class="brand-icon">R<span>·</span></span
+        >Robot Training <b>Hub</b></a
+      >
+      <p>Booster K1 · mjlab · Learn by doing.</p>
+      <span>Workshop entry page</span>
+    </footer>
+  </body>
+</html>

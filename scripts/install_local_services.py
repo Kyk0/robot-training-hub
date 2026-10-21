@@ -9,6 +9,10 @@ import sys
 from hub.config import Config, ROOT
 
 cfg = Config()
+if (cfg.data / ".hosted-on-workstation").exists():
+    raise SystemExit(
+        "Coordinator moved to the workstation. Use scripts/workshop.sh services for the local preview proxy."
+    )
 if sys.platform != "darwin":
     raise SystemExit(
         "This installer is for macOS; see deploy/robot-hub.service for Linux."
