@@ -936,8 +936,10 @@ function Motions() {
           />
         </div>
         <p>
-          Expected: root XYZ in meters, quaternion XYZW, and 22 K1 joint
-          positions in radians. Booster Assets motion files use 50 Hz.
+          Accepts Booster K1 CSVs and named MuJoCo cartwheel CSVs, including
+          time and velocity columns. Joint order and quaternion format are
+          converted automatically. Select the file’s frame rate; Booster Assets
+          and the cartwheel example use 50 Hz.
         </p>
         <Button type="submit" disabled={action.busy}>
           <Upload size={16} />
