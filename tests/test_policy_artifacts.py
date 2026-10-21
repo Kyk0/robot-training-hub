@@ -94,6 +94,12 @@ def test_policy_catalog_export_ownership_and_terminal_publication(setup, job):
         headers=headers,
         content=b"seed: 42\n",
     ).raise_for_status()
+    worker.put(
+        "/api/worker/runs/" + key + "/artifact",
+        params={"path": "training/model_550.pt"},
+        headers=headers,
+        content=b"unit-test-checkpoint",
+    ).raise_for_status()
     worker.post(
         "/api/worker/runs/" + key + "/report",
         json={
@@ -113,6 +119,14 @@ def test_policy_catalog_export_ownership_and_terminal_publication(setup, job):
         ).raise_for_status()
     rows = alice.get("/api/policies").json()
     assert len(rows) == 10 and len(admin.get("/api/policies").json()) == 10
+    assert (
+        next(row for row in rows if row["iteration_index"] == 550)["checkpoint_path"]
+        == "training/model_550.pt"
+    )
+    assert (
+        next(row for row in rows if row["iteration_index"] == 500)["checkpoint_path"]
+        is None
+    )
     assert bob.get("/api/policies").json() == []
     path = rows[0]["path"]
     url = "/api/runs/" + key + "/policies/export"
@@ -122,6 +136,7 @@ def test_policy_catalog_export_ownership_and_terminal_publication(setup, job):
     with zipfile.ZipFile(io.BytesIO(result.content)) as z:
         assert z.read("policy.onnx") == b"unit-test-policy"
         assert json.loads(z.read("manifest.json"))["run_id"] == key
+        assert json.loads(z.read("manifest.json"))["training_commits"]
         assert z.read("config/training/params/env.yaml") == b"seed: 42\n"
     assert (
         worker.put(

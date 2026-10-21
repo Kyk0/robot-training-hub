@@ -336,3 +336,17 @@ def test_email_failure_keeps_generated_password_usable(setup, monkeypatch):
         ).status_code
         == 200
     )
+
+
+def test_admin_can_stop_another_participants_run_but_peers_cannot(setup, job):
+    app, db, cfg, client = setup
+    admin, alice, bob = (
+        client("admin@example.org"),
+        client("alice@example.org"),
+        client("bob@example.org"),
+    )
+    run = alice.post("/api/runs", json=job).json()
+    assert bob.post("/api/runs/" + run["id"] + "/cancel").status_code == 404
+    assert admin.post("/api/runs/" + run["id"] + "/cancel").status_code == 200
+    assert admin.get("/api/runs/" + run["id"]).json()["status"] == "CANCELED"
+    assert admin.get("/api/code/" + run["id"] + "/download").status_code == 200

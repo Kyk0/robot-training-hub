@@ -2,7 +2,8 @@
 
 Open **Policies** in the sidebar (`/policies`). Participants see their own exports; admins see every participant's policies. Each entry links to its training run and offers:
 
-- **ONNX**: download the inference model alone.
+- **ONNX**: download the inference model alone for a compatible simulator or robot runtime.
+- **PT checkpoint**: download the matching retained training checkpoint to resume mjlab training; older policy versions may no longer have a retained PT file.
 - **Export policy**: download a ZIP containing `policy.onnx`, resolved YAML configuration and a provenance manifest with policy/source hashes, run ID, approved motion and training configuration.
 
 New runs default to an export/checkpoint interval of **50 learning iterations**. The New training form also offers 100 or 200. This sets the pinned mjlab runner's real `agent.save_interval`; it is not a simulator timestep interval. mjlab also saves initially and finally. Checkpoint indices in the policy list are zero-based (for example model_50.pt is saved after the 51st iteration).

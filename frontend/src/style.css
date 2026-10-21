@@ -2352,3 +2352,46 @@ th,
 .badge.disabled {
   color: #71788f;
 }
+
+/* Keep policy download actions visible beside long experiment names and emails. */
+.policy-table {
+  table-layout: fixed;
+  min-width: 760px;
+  width: 100%;
+}
+.policy-table th,
+.policy-table td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.policy-table .actions {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.policy-table .button {
+  white-space: nowrap;
+}
+
+.run-table .run-actions {
+  position: sticky;
+  right: 0;
+  background: #fff;
+  box-shadow: -6px 0 12px rgba(24, 30, 52, 0.04);
+}
+.run-table .run-actions .actions {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+.export-format-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+}
+.export-format-grid p {
+  margin-top: 8px;
+}
+@media (max-width: 800px) {
+  .export-format-grid {
+    grid-template-columns: 1fr;
+  }
+}

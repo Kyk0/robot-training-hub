@@ -1235,6 +1235,14 @@ def create_app(cfg=None):
                 "SELECT a.*,j.name,j.status,j.spec,j.created,j.iteration,u.email,s.name server_name FROM artifacts a JOIN jobs j ON j.id=a.job_id JOIN users u ON u.id=j.user_id LEFT JOIN servers s ON s.id=j.server_id WHERE a.path LIKE '%.onnx' AND (? OR j.user_id=?) ORDER BY j.created DESC,a.path DESC LIMIT 1000",
                 (u["role"] == "admin", u["id"]),
             ).fetchall()
+            checkpoint_rows = c.execute(
+                "SELECT job_id,path FROM artifacts WHERE path LIKE '%.pt'"
+            ).fetchall()
+        checkpoints = {}
+        for item in checkpoint_rows:
+            match = re.search(r"model_(\d+)\.pt$", item["path"])
+            if match:
+                checkpoints[(item["job_id"], int(match.group(1)))] = item["path"]
         result = []
         for row in rows:
             data = dict(row)
@@ -1243,6 +1251,9 @@ def create_app(cfg=None):
             data["policy_interval"] = spec.get("policy_interval", 100)
             match = VERSION.fullmatch(data["path"])
             data["iteration_index"] = int(match.group(2)) if match else None
+            data["checkpoint_path"] = checkpoints.get(
+                (data["job_id"], data["iteration_index"])
+            )
             result.append(data)
         return result
 
@@ -1264,6 +1275,9 @@ def create_app(cfg=None):
         if sha(raw) != artifact["sha256"]:
             raise HTTPException(409, "Policy checksum mismatch")
         buffer = io.BytesIO()
+        source_manifest = (cfg.data / "snapshots" / key / "manifest.json").read_bytes()
+        if sha(source_manifest) != r["snapshot"]:
+            raise HTTPException(409, "Source manifest checksum mismatch")
         with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
             archive.writestr("policy.onnx", raw)
             archive.writestr(
@@ -1273,6 +1287,7 @@ def create_app(cfg=None):
                         "run_id": key,
                         "policy_sha256": artifact["sha256"],
                         "snapshot_sha256": r["snapshot"],
+                        "training_commits": json.loads(source_manifest)["commits"],
                         "configuration": unpack(r["spec"]),
                         "policy_path": path,
                     }

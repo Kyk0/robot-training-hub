@@ -676,6 +676,8 @@ function Dashboard() {
   );
 }
 function RunTable({ runs, admin = false }: { runs: Run[]; admin?: boolean }) {
+  const action = useAction();
+  const [stopping, setStopping] = useState<Run>();
   if (!runs.length)
     return (
       <Empty>
@@ -686,56 +688,127 @@ function RunTable({ runs, admin = false }: { runs: Run[]; admin?: boolean }) {
       </Empty>
     );
   return (
-    <div className="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>Experiment</th>
-            {admin && <th>Participant</th>}
-            <th>Status</th>
-            <th>Motion / environments</th>
-            <th>Server</th>
-            <th>Progress</th>
-            <th>Elapsed</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {runs.map((r) => (
-            <tr key={r.id}>
-              <td>
-                <Link className="run-name" to={"/runs/" + r.id}>
-                  {r.name}
-                </Link>
-                <small>{r.id.slice(0, 8)}</small>
-              </td>
-              {admin && <td>{r.email}</td>}
-              <td>
-                <Badge status={r.status} />
-                {!!r.cancel && active(r) && <small>Stopping requested</small>}
-              </td>
-              <td>
-                {r.spec.motion.label}
-                <small>{r.spec.num_envs.toLocaleString()} environments</small>
-              </td>
-              <td>{r.server_name || "Queued"}</td>
-              <td>
-                <div className="mini-progress">
-                  {r.iteration} / {r.spec.iterations}
-                  <progress value={r.iteration} max={r.spec.iterations} />
-                </div>
-              </td>
-              <td>{duration(r)}</td>
-              <td>
-                <Link to={"/runs/" + r.id} aria-label={"Open " + r.name}>
-                  <ArrowUpRight size={16} />
-                </Link>
-              </td>
+    <>
+      <ErrorBox error={action.error} />
+      <div className="table-scroll">
+        <table className="run-table">
+          <thead>
+            <tr>
+              <th>Experiment</th>
+              {admin && <th>Participant</th>}
+              <th>Status</th>
+              <th>Motion / environments</th>
+              <th>Server</th>
+              <th>Progress</th>
+              <th>Elapsed</th>
+              <th className="run-actions">Actions</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {runs.map((r) => (
+              <tr key={r.id}>
+                <td>
+                  <Link className="run-name" to={"/runs/" + r.id}>
+                    {r.name}
+                  </Link>
+                  <small>{r.id.slice(0, 8)}</small>
+                </td>
+                {admin && <td>{r.email}</td>}
+                <td>
+                  <Badge status={r.status} />
+                  {!!r.cancel && active(r) && <small>Stopping requested</small>}
+                </td>
+                <td>
+                  {r.spec.motion.label}
+                  <small>{r.spec.num_envs.toLocaleString()} environments</small>
+                </td>
+                <td>{r.server_name || "Queued"}</td>
+                <td>
+                  <div className="mini-progress">
+                    {r.iteration} / {r.spec.iterations}
+                    <progress value={r.iteration} max={r.spec.iterations} />
+                  </div>
+                </td>
+                <td>{duration(r)}</td>
+                <td className="run-actions">
+                  <div className="actions">
+                    {admin && active(r) && (
+                      <Button
+                        variant="danger small"
+                        disabled={action.busy || r.cancel}
+                        onClick={() => setStopping(r)}
+                      >
+                        {r.cancel
+                          ? "Stopping…"
+                          : r.status === "QUEUED"
+                            ? "Remove queued"
+                            : "Stop"}
+                      </Button>
+                    )}
+                    <Link to={"/runs/" + r.id} aria-label={"Open " + r.name}>
+                      <ArrowUpRight size={16} />
+                    </Link>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {stopping && (
+        <div className="modal-backdrop">
+          <section className="modal compact">
+            <div className="section-title">
+              <h2>
+                {stopping.status === "QUEUED"
+                  ? "Remove queued run"
+                  : "Stop training"}
+              </h2>
+              <button
+                onClick={() => setStopping(undefined)}
+                aria-label="Close stop dialog"
+              >
+                <X />
+              </button>
+            </div>
+            <div className="modal-content">
+              <p>
+                <strong>{stopping.name}</strong>
+              </p>
+              <p>
+                {stopping.email} ·{" "}
+                {stopping.server_name || "Waiting for compute"}
+              </p>
+              <p>
+                This stops this workshop run. Its saved artifacts remain
+                available.
+              </p>
+              <ErrorBox error={action.error} />
+            </div>
+            <div className="modal-footer">
+              <Button
+                variant="secondary"
+                onClick={() => setStopping(undefined)}
+              >
+                Keep running
+              </Button>
+              <Button
+                variant="danger"
+                disabled={action.busy}
+                onClick={() =>
+                  action.run(async () => {
+                    await api("/runs/" + stopping.id + "/cancel", "POST");
+                    setStopping(undefined);
+                  }, "Stop requested")
+                }
+              >
+                Confirm stop
+              </Button>
+            </div>
+          </section>
+        </div>
+      )}
+    </>
   );
 }
 function Runs({ admin = false }: { admin?: boolean }) {
@@ -1441,10 +1514,29 @@ function Policies() {
             placeholder="Search experiment, motion or participant"
           />
         </label>
-        <p>
-          Export policy downloads a ZIP with policy.onnx, resolved configuration
-          and a provenance manifest. Use ONNX for the model file alone.
-        </p>
+        <div className="export-format-grid">
+          <div>
+            <h3>ONNX · inference model</h3>
+            <p>
+              For a compatible simulator or robot runtime. Includes the tracking
+              motion reference.
+            </p>
+          </div>
+          <div>
+            <h3>PT · training checkpoint</h3>
+            <p>
+              Weights and training state for resuming mjlab training. Available
+              when this checkpoint is retained.
+            </p>
+          </div>
+          <div>
+            <h3>ZIP · policy bundle</h3>
+            <p>
+              ONNX, resolved YAML configuration, commit IDs and a hash manifest
+              for sharing and deployment setup.
+            </p>
+          </div>
+        </div>
       </section>
       {!data?.length ? (
         <Empty>
@@ -1454,7 +1546,15 @@ function Policies() {
       ) : (
         <section className="panel">
           <div className="table-scroll">
-            <table>
+            <table className="policy-table">
+              <colgroup>
+                {(user?.role === "admin"
+                  ? [23, 21, 12, 12, 8, 24]
+                  : [30, 15, 15, 10, 30]
+                ).map((width, index) => (
+                  <col key={index} style={{ width: width + "%" }} />
+                ))}
+              </colgroup>
               <thead>
                 <tr>
                   <th>Experiment / motion</th>
@@ -1501,7 +1601,7 @@ function Policies() {
                             }
                           >
                             <Download size={15} />
-                            Export policy
+                            Export policy ZIP
                           </a>
                           <a
                             className="button secondary small"
@@ -1514,6 +1614,19 @@ function Policies() {
                           >
                             ONNX
                           </a>
+                          {p.checkpoint_path && (
+                            <a
+                              className="button secondary small"
+                              href={
+                                "/api/runs/" +
+                                p.job_id +
+                                "/artifacts?path=" +
+                                encodeURIComponent(p.checkpoint_path)
+                              }
+                            >
+                              PT checkpoint
+                            </a>
+                          )}
                         </div>
                       </td>
                     </tr>
