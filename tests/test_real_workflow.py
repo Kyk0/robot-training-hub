@@ -313,3 +313,28 @@ def test_memory_floor_keeps_stricter_shared_reservation():
         )
         == 4916
     )
+
+
+def test_workshop_environment_defaults_and_power_of_two_validation(setup):
+    from hub.config import DEFAULT_SETTINGS
+
+    assert DEFAULT_SETTINGS["min_envs"] == 1024
+    assert DEFAULT_SETTINGS["max_envs"] == 4096
+    assert DEFAULT_SETTINGS["default_envs"] == 2048
+    assert DEFAULT_SETTINGS["presets"] == [1024, 2048, 4096]
+    app, db, cfg, client = setup
+    admin = client("admin@example.org")
+    settings = {
+        **admin.get("/api/admin/settings").json(),
+        "min_envs": 1024,
+        "max_envs": 4096,
+        "presets": [1024, 2048, 4096],
+    }
+    assert admin.put("/api/admin/settings", json=settings).status_code == 200
+    assert (
+        admin.put(
+            "/api/admin/settings",
+            json={**settings, "presets": [1024, 1536, 2048, 4096]},
+        ).status_code
+        == 422
+    )

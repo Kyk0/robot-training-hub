@@ -80,6 +80,8 @@ class Settings(Strict):
             raise ValueError("Default must be an allowed preset within limits")
         if any(not self.min_envs <= n <= self.max_envs for n in self.presets):
             raise ValueError("Preset outside limits")
+        if any(n < 1 or n & (n - 1) for n in self.presets):
+            raise ValueError("Environment presets must be powers of two")
         if len(set(m.id for m in self.motions)) != len(self.motions):
             raise ValueError("Motion IDs must be unique")
         if not set(self.reward_bounds) <= {"motion_foot_pos", "action_rate_l2"}:

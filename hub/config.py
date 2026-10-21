@@ -38,9 +38,9 @@ class Config:
 DEFAULT_SETTINGS = {
     "paused": False,
     "default_envs": 2048,
-    "min_envs": 256,
-    "max_envs": 2048,
-    "presets": [256, 512, 1024, 2048],
+    "min_envs": 1024,
+    "max_envs": 4096,
+    "presets": [1024, 2048, 4096],
     "max_iterations": 30000,
     "max_running_jobs": 10,
     "gpu_memory_percent": 80,
@@ -52,7 +52,7 @@ DEFAULT_SETTINGS = {
 }
 DEFAULT_SERVER = {
     "enabled": True,
-    "max_envs": 2048,
+    "max_envs": 4096,
     "max_jobs": 10,
     "reserve_mb": 46080,
     "margin_mb": 2048,

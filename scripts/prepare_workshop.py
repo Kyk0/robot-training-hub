@@ -63,7 +63,7 @@ if not path.exists():
         key = uid()
         config = {
             **DEFAULT_SERVER,
-            "max_envs": 2048,
+            "max_envs": 4096,
             "max_jobs": 10,
             "reserve_mb": reserve,
             "institutional_permission": True,

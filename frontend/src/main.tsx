@@ -46,8 +46,10 @@ import {
 } from "lucide-react";
 import { api, User, Run, active, date, duration } from "./api";
 import MotionViewer from "./MotionViewer";
+import RobotIllustration from "./RobotIllustration";
 import "./style.css";
 
+const ENV_OPTIONS = [1024, 2048, 4096];
 const REPO = "https://github.com/IntelligentRoboticsLab/booster_mjlab";
 const Auth = createContext<{ user: User | null; reload: () => Promise<void> }>({
   user: null,
@@ -268,6 +270,7 @@ function Login() {
             Upload a motion, choose your training settings, and follow the run
             from your browser.
           </p>
+          <RobotIllustration />
           <div className="auth-steps">
             <span>01 &nbsp; Upload a K1 motion CSV</span>
             <span>02 &nbsp; Preview the motion</span>
@@ -475,7 +478,10 @@ function Shell() {
             Workshop <ChevronRight size={12} />
             <b>Booster K1</b>
           </div>
-          <span>{user.role === "admin" ? "Administrator" : "Participant"}</span>
+          <span className="role-pill">
+            <ShieldCheck size={14} />
+            {user.role === "admin" ? "Administrator" : "Participant"}
+          </span>
         </div>
         <div className="content">
           <Routes>
@@ -515,6 +521,60 @@ function Shell() {
   );
 }
 
+function WorkshopHero({ admin = false }: { admin?: boolean }) {
+  return (
+    <section className="workshop-hero">
+      <div className="workshop-hero-copy">
+        <span className="hero-kicker">
+          <span /> BOOSTER K1 · MOTION TRACKING
+        </span>
+        <h2>
+          {admin ? (
+            <>
+              A little coordination.
+              <br />A lot of possibility.
+            </>
+          ) : (
+            <>
+              Your motion.
+              <br />
+              Your next breakthrough.
+            </>
+          )}
+        </h2>
+        <p>
+          {admin
+            ? "Keep the workshop moving. Manage access, watch compute capacity, and follow every experiment in one place."
+            : "Bring a motion to life. Preview a K1 reference, start training, and follow your robot’s progress."}
+        </p>
+        <div className="actions">
+          <Link
+            className="button hero-primary"
+            to={admin ? "/admin/users" : "/train/new"}
+          >
+            {admin ? "Manage participants" : "Start an experiment"}
+            <ArrowUpRight size={17} />
+          </Link>
+          <Link
+            className="hero-secondary"
+            to={admin ? "/admin/servers" : "/motions"}
+          >
+            {admin ? "View compute" : "Explore motions"}
+            <ArrowRight size={16} />
+          </Link>
+        </div>
+      </div>
+      <div className="workshop-hero-art">
+        <RobotIllustration compact />
+        <div className="hero-model-label">
+          <span />
+          Booster K1 <small>22 degrees of freedom</small>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function Dashboard() {
   const { user } = useContext(Auth);
   const { data: runs, error } = usePoll<Run[]>(() => api("/runs"));
@@ -534,6 +594,7 @@ function Dashboard() {
         }
       />
       <ErrorBox error={error} />
+      <WorkshopHero />
       <div className="stats">
         <Stat label="Your runs" value={own.length} />
         <Stat
@@ -895,7 +956,15 @@ function NewTraining() {
     [iterations, setIterations] = useState(1000);
   useEffect(() => {
     if (o) {
-      setEnvs(Math.min(o.default_envs, o.user_env_limit ?? o.max_envs));
+      const available = o.presets.filter(
+        (n: number) =>
+          n <= Math.min(o.max_envs, o.user_env_limit ?? o.max_envs),
+      );
+      setEnvs(
+        available.includes(o.default_envs)
+          ? o.default_envs
+          : (available[0] ?? 0),
+      );
       if (!motion) setMotion(o.motions[0]?.id || "");
     }
   }, [!!o]);
@@ -959,9 +1028,10 @@ function NewTraining() {
             )}
             <label>
               Parallel environments
-              <select
-                value={envs}
-                onChange={(e) => setEnvs(Number(e.target.value))}
+              <div
+                className="environment-options"
+                role="group"
+                aria-label="Parallel environments"
               >
                 {o.presets
                   .filter(
@@ -969,11 +1039,29 @@ function NewTraining() {
                       n <= Math.min(o.max_envs, o.user_env_limit ?? o.max_envs),
                   )
                   .map((n: number) => (
-                    <option key={n} value={n}>
-                      {n.toLocaleString()}
-                    </option>
+                    <button
+                      type="button"
+                      className={
+                        envs === n
+                          ? "environment-option selected"
+                          : "environment-option"
+                      }
+                      key={n}
+                      onClick={() => setEnvs(n)}
+                      aria-pressed={envs === n}
+                    >
+                      <span>{n.toLocaleString()}</span>
+                      <small>
+                        {n === 1024
+                          ? "Light"
+                          : n === 2048
+                            ? "Balanced"
+                            : "Large"}
+                      </small>
+                      {envs === n && <Check size={14} />}
+                    </button>
                   ))}
-              </select>
+              </div>
               <small>
                 Your maximum:{" "}
                 {Math.min(
@@ -992,7 +1080,7 @@ function NewTraining() {
             />
             <div className="form-submit">
               <span>One outstanding run per participant.</span>
-              <Button type="submit" disabled={action.busy || !motion}>
+              <Button type="submit" disabled={action.busy || !motion || !envs}>
                 {action.busy ? "Preparing run…" : "Start training"}
                 <ArrowRight size={16} />
               </Button>
@@ -1045,11 +1133,11 @@ function RewardChart({ metrics = [] }: { metrics: any[] | undefined }) {
       role="img"
       aria-label="Reward over training iterations"
     >
-      <line x1="40" y1="190" x2="660" y2="190" stroke="#dce4d4" />
+      <line x1="40" y1="190" x2="660" y2="190" stroke="#e9e6f2" />
       <polyline
         points={points.join(" ")}
         fill="none"
-        stroke="#517f4c"
+        stroke="#9273d2"
         strokeWidth="2.5"
       />
       <text x="5" y="30">
@@ -1366,6 +1454,7 @@ function AdminOverview() {
           Scheduling is paused. Running jobs continue.
         </div>
       )}
+      <WorkshopHero admin />
       <div className="stats four">
         <Stat label="Participants" value={o?.participants ?? 0} />
         <Stat
@@ -1797,19 +1886,22 @@ function Participants() {
               />
               <label>
                 Maximum environments
-                <input
-                  type="number"
-                  min={1}
-                  max={16384}
+                <select
                   value={edit.env_limit ?? ""}
-                  placeholder="Use workshop default"
                   onChange={(e) =>
                     setEdit({
                       ...edit,
                       env_limit: e.target.value ? Number(e.target.value) : null,
                     })
                   }
-                />
+                >
+                  <option value="">Workshop default</option>
+                  {ENV_OPTIONS.map((n) => (
+                    <option key={n} value={n}>
+                      {n.toLocaleString()}
+                    </option>
+                  ))}
+                </select>
               </label>
               <label>
                 Role
@@ -1847,16 +1939,26 @@ function Participants() {
 }
 function WorkshopSettings() {
   const { data, error } = usePoll<any>(() => api("/admin/settings"), [], 30000);
-  const [form, setForm] = useState<any>(),
-    [presets, setPresets] = useState("");
+  const [form, setForm] = useState<any>();
   const action = useAction();
   useEffect(() => {
     if (data && !form) {
       setForm(structuredClone(data));
-      setPresets(data.presets.join(", "));
     }
   }, [data]);
   const update = (key: string, v: any) => setForm({ ...form, [key]: v });
+  const updateEnvironmentRange = (key: string, value: number) => {
+    const next = { ...form, [key]: value };
+    if (key === "max_envs") next.min_envs = Math.min(next.min_envs, value);
+    if (key === "min_envs") next.max_envs = Math.max(next.max_envs, value);
+    next.presets = ENV_OPTIONS.filter(
+      (n) => n >= next.min_envs && n <= next.max_envs,
+    );
+    if (!next.presets.includes(next.default_envs))
+      next.default_envs = next.presets[0];
+    setForm(next);
+  };
+
   return (
     <>
       <Head
@@ -1872,7 +1974,7 @@ function WorkshopSettings() {
               () =>
                 api("/admin/settings", "PUT", {
                   ...form,
-                  presets: presets.split(",").map((n) => Number(n.trim())),
+                  presets: form.presets,
                 }),
               "Workshop settings saved",
             );
@@ -1881,27 +1983,51 @@ function WorkshopSettings() {
           <section className="panel details">
             <h2>Training limits</h2>
             <div className="form-grid">
-              <Field
-                label="Default environments"
-                value={form.default_envs}
-                min={1}
-                max={16384}
-                onChange={(v) => update("default_envs", v)}
-              />
-              <Field
-                label="Maximum environments per participant"
-                value={form.max_envs}
-                min={1}
-                max={16384}
-                onChange={(v) => update("max_envs", v)}
-              />
-              <Field
-                label="Minimum environments"
-                value={form.min_envs}
-                min={1}
-                max={16384}
-                onChange={(v) => update("min_envs", v)}
-              />
+              <label>
+                Default environments
+                <select
+                  value={form.default_envs}
+                  onChange={(e) =>
+                    update("default_envs", Number(e.target.value))
+                  }
+                >
+                  {form.presets.map((n: number) => (
+                    <option key={n} value={n}>
+                      {n.toLocaleString()}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Maximum environments per participant
+                <select
+                  value={form.max_envs}
+                  onChange={(e) =>
+                    updateEnvironmentRange("max_envs", Number(e.target.value))
+                  }
+                >
+                  {ENV_OPTIONS.map((n) => (
+                    <option key={n} value={n}>
+                      {n.toLocaleString()}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Minimum environments
+                <select
+                  value={form.min_envs}
+                  onChange={(e) =>
+                    updateEnvironmentRange("min_envs", Number(e.target.value))
+                  }
+                >
+                  {ENV_OPTIONS.map((n) => (
+                    <option key={n} value={n}>
+                      {n.toLocaleString()}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <Field
                 label="Maximum concurrent jobs"
                 value={form.max_running_jobs}
@@ -1924,11 +2050,15 @@ function WorkshopSettings() {
                 onChange={(v) => update("max_iterations", v)}
               />
               <label>
-                Environment presets
-                <input
-                  value={presets}
-                  onChange={(e) => setPresets(e.target.value)}
-                />
+                Available environment sizes
+                <div className="environment-options">
+                  {form.presets.map((n: number) => (
+                    <span className="preset-pill" key={n}>
+                      {n.toLocaleString()}
+                    </span>
+                  ))}
+                </div>
+                <small>Powers of two within the workshop limits.</small>
               </label>
             </div>
             <p>

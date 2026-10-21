@@ -51,6 +51,7 @@ def setup(tmp_path):
                 (uid(), email, now()),
             )
         s = db.settings(c)
+        s.update(min_envs=256, max_envs=2048, presets=[256, 512, 1024, 2048])
         s["motions"] = [
             {
                 "id": "walk",

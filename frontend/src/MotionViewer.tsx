@@ -36,17 +36,17 @@ export default function MotionViewer({ motionId }: { motionId: string }) {
         const container = mount.current!;
         renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-        renderer.setClearColor(0xf1f4ed);
+        renderer.setClearColor(0xf4f3fa);
         container.appendChild(renderer.domElement);
         const scene = new THREE.Scene(),
           camera = new THREE.PerspectiveCamera(40, 1, 0.01, 100);
         camera.up.set(0, 0, 1);
         camera.position.set(1.8, -2.2, 1.2);
-        scene.add(new THREE.HemisphereLight(0xffffff, 0x839279, 2.5));
+        scene.add(new THREE.HemisphereLight(0xffffff, 0x777994, 2.5));
         const light = new THREE.DirectionalLight(0xffffff, 3);
         light.position.set(2, -3, 5);
         scene.add(light);
-        const grid = new THREE.GridHelper(8, 40, 0xb9c7af, 0xd8e0d1);
+        const grid = new THREE.GridHelper(8, 40, 0xc8c5dc, 0xe3e0ed);
         grid.rotation.x = Math.PI / 2;
         scene.add(grid);
         controls = new OrbitControls(camera, renderer.domElement);
