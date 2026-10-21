@@ -238,3 +238,78 @@ def test_real_tensorboard_proxy_serves_scalar_data(setup, job, tmp_path):
         )
         assert values.status_code == 200, values.text
         assert values.json()[-1][1:] == [1, 2.5]
+
+
+def test_gpu_eighty_percent_ceiling_counts_external_and_starting_memory(setup, job):
+    app, db, cfg, client = setup
+    admin = client("admin@example.org")
+    alice = client("alice@example.org")
+    bob = client("bob@example.org")
+    worker, server = enroll(app, admin, max_jobs=10)
+    heartbeat(worker, total=100000, free=21000)
+    a = alice.post("/api/runs", json=job).json()
+    assert alice.get("/api/runs/" + a["id"]).json()["status"] == "QUEUED"
+    # External users occupy 70%; one estimated 8.7%-sized workshop job fits.
+    heartbeat(worker, total=100000, free=30000)
+    assert alice.get("/api/runs/" + a["id"]).json()["status"] == "STARTING"
+    b = bob.post("/api/runs", json=job).json()
+    assert bob.get("/api/runs/" + b["id"]).json()["status"] == "QUEUED"
+    capacity = next(
+        s for s in admin.get("/api/admin/servers").json() if s["id"] == server["id"]
+    )["capacity"][0]
+    assert capacity["memory_percent"] == 80 and capacity["additional_jobs"] == 0
+    assert capacity["minimum_free_mb"] == 20000
+    settings = admin.get("/api/admin/settings").json()
+    settings["gpu_memory_percent"] = 90
+    admin.put("/api/admin/settings", json=settings).raise_for_status()
+    schedule(db)
+    first = alice.get("/api/runs/" + a["id"]).json()
+    second = bob.get("/api/runs/" + b["id"]).json()
+    assert first["placement"]["gpu_memory_percent"] == 80
+    assert (
+        second["status"] == "STARTING"
+        and second["placement"]["gpu_memory_percent"] == 90
+    )
+
+
+def test_eighteen_participants_cannot_exceed_ten_global_jobs(setup, job):
+    app, db, cfg, client = setup
+    admin = client("admin@example.org")
+    emails = [f"workshop{i:02}@example.org" for i in range(18)]
+    admin.post(
+        "/api/admin/users/bulk", json={"emails": emails, "env_limit": 2048}
+    ).raise_for_status()
+    worker, _ = enroll(app, admin, max_jobs=18)
+    heartbeat(worker, total=1000000, free=1000000)
+    for email in emails:
+        assert client(email).post("/api/runs", json=job).status_code == 201
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(lambda _: schedule(db), range(8)))
+    with db.connect() as c:
+        assert (
+            c.execute("SELECT count(*) FROM jobs WHERE status='STARTING'").fetchone()[0]
+            == 10
+        )
+        assert (
+            c.execute("SELECT count(*) FROM jobs WHERE status='QUEUED'").fetchone()[0]
+            == 8
+        )
+
+
+def test_memory_floor_keeps_stricter_shared_reservation():
+    from hub.scheduler import minimum_free_mb
+
+    assert (
+        minimum_free_mb(
+            {"total_mb": 100000},
+            {"reserve_mb": 46080, "margin_mb": 2048, "gpu_memory_percent": 80},
+        )
+        == 48128
+    )
+    assert (
+        minimum_free_mb(
+            {"total_mb": 24576},
+            {"reserve_mb": 0, "margin_mb": 2048, "gpu_memory_percent": 80},
+        )
+        == 4916
+    )

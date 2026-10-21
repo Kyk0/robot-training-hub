@@ -64,6 +64,7 @@ class Settings(Strict):
     presets: list[int] = Field(min_length=1, max_length=16)
     max_iterations: int = Field(ge=1, le=100000)
     max_running_jobs: int = Field(default=10, ge=1, le=100)
+    gpu_memory_percent: int = Field(default=80, ge=10, le=95)
     motions: list[Motion] = Field(max_length=100)
     tasks: list[Literal["Mjlab-Tracking-Flat-Booster-K1"]]
     memory_profiles: MemoryProfile

@@ -231,8 +231,9 @@ function Login() {
     [message, setMessage] = useState("");
   const { data: health } = usePoll<any>(() => api("/health"), [], 30000);
   useEffect(() => {
-    const token = new URLSearchParams(location.hash.slice(1)).get("token");
-    if (token) {
+    const consume = () => {
+      const token = new URLSearchParams(location.hash.slice(1)).get("token");
+      if (!token) return;
       history.replaceState(null, "", "/login");
       action.run(async () => {
         await api("/auth/verify", "POST", { token });
@@ -240,7 +241,10 @@ function Login() {
         await reload();
         nav(account.role === "admin" ? "/admin" : "/dashboard");
       }, "");
-    }
+    };
+    consume();
+    window.addEventListener("hashchange", consume);
+    return () => window.removeEventListener("hashchange", consume);
   }, []);
   if (user)
     return <Navigate to={user.role === "admin" ? "/admin" : "/dashboard"} />;
@@ -643,7 +647,7 @@ function RunTable({ runs, admin = false }: { runs: Run[]; admin?: boolean }) {
               {admin && <td>{r.email}</td>}
               <td>
                 <Badge status={r.status} />
-                {r.cancel && active(r) && <small>Stopping requested</small>}
+                {!!r.cancel && active(r) && <small>Stopping requested</small>}
               </td>
               <td>
                 {r.spec.motion.label}
@@ -1441,6 +1445,14 @@ function ServerCard({
               : "off"}
         </span>
       </div>
+      {s.capacity?.map((capacity: any) => (
+        <p className="server-capacity" key={capacity.gpu}>
+          {capacity.additional_jobs} more{" "}
+          {capacity.additional_jobs === 1 ? "job" : "jobs"} at{" "}
+          {capacity.num_envs.toLocaleString()} environments ·{" "}
+          {capacity.memory_percent}% memory ceiling
+        </p>
+      ))}
       {s.inventory.mock && <div className="mock-label">SIMULATED WORKER</div>}
       <div className="server-card-foot">
         <span>{s.config.enabled ? "Enabled" : "Disabled"}</span>
@@ -1898,6 +1910,13 @@ function WorkshopSettings() {
                 onChange={(v) => update("max_running_jobs", v)}
               />
               <Field
+                label="Maximum GPU memory usage (%)"
+                value={form.gpu_memory_percent}
+                min={10}
+                max={95}
+                onChange={(v) => update("gpu_memory_percent", v)}
+              />
+              <Field
                 label="Maximum iterations per run"
                 value={form.max_iterations}
                 min={1}
@@ -1913,8 +1932,9 @@ function WorkshopSettings() {
               </label>
             </div>
             <p>
-              GPU memory and per-server limits may reduce the number of jobs
-              that can run at once. Existing jobs keep their saved settings.
+              Job capacity is calculated from free GPU memory, including other
+              users’ processes and starting jobs. The stricter memory reserve
+              still applies. Existing jobs keep their saved settings.
             </p>
             <Toggle
               label="Pause new job scheduling"

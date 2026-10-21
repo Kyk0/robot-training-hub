@@ -60,7 +60,16 @@ t=d/'worker.token';fd=os.open(t,os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600)
 with os.fdopen(fd,'w') as f:f.write(p['token'])
 u=pathlib.Path.home()/'.config/systemd/user/robot-training-hub-worker.service';u.parent.mkdir(parents=True,exist_ok=True);u.write_text(p['unit'])
 subprocess.run(['systemctl','--user','daemon-reload'],check=True)
-subprocess.run(['systemctl','--user','enable','--now','robot-training-hub-worker.service'],check=True)
+state=subprocess.check_output(['systemctl','--user','show','-p','LoadState','--value','robot-training-hub-worker.service'],text=True).strip()
+if state=='not-found':
+    # University LDAP home and interactive $HOME can differ. The runtime user
+    # unit directory is shared with the manager and requires no root changes.
+    subprocess.run(['systemctl','--user','link','--runtime',str(u)],check=True)
+    subprocess.run(['systemctl','--user','daemon-reload'],check=True)
+    subprocess.run(['systemctl','--user','enable','--runtime','--now','robot-training-hub-worker.service'],check=True)
+    print('Runtime user-service link: rerun workshop.sh workers after a host reboot.')
+else:
+    subprocess.run(['systemctl','--user','enable','--now','robot-training-hub-worker.service'],check=True)
 subprocess.run(['systemctl','--user','is-active','robot-training-hub-worker.service'],check=True)
 """
     subprocess.run(

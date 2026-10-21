@@ -7,10 +7,12 @@ import json
 import os
 from pathlib import Path
 import signal
+import shutil
 import subprocess
 import time
 from hub.hardware import discover, mps_environment
 from hub.snapshots import verify
+from hub.scheduler import minimum_free_mb
 
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument("--source", type=Path, required=True)
@@ -19,6 +21,11 @@ p.add_argument("--gpu", required=True)
 p.add_argument("--concurrency", type=int, default=2)
 p.add_argument("--mps-config", type=Path, required=True)
 p.add_argument("--output", type=Path, required=True)
+p.add_argument(
+    "--motion-csv",
+    type=Path,
+    help="Original approved CSV, required for an uploaded CSV snapshot",
+)
 p.add_argument(
     "--estimated-job-mb",
     type=int,
@@ -37,6 +44,15 @@ if not 1 <= a.concurrency <= 18:
 source = a.source.resolve()
 manifest = verify(source)
 spec = manifest["configuration"]
+if spec["motion"]["artifact"].startswith("upload:"):
+    import hashlib
+
+    if (
+        not a.motion_csv
+        or hashlib.sha256(a.motion_csv.read_bytes()).hexdigest()
+        != spec["motion"]["sha256"]
+    ):
+        p.error("--motion-csv must match the approved snapshot CSV checksum")
 cfg = json.loads(a.mps_config.read_text())
 inv = discover(cfg)
 if inv["institutional_scheduler"] and not inv.get("slurm_job_id"):
@@ -53,10 +69,13 @@ for enabled in (False, True):
     selected = next((g for g in inv["gpus"] if g["uuid"] == a.gpu), None)
     if not selected:
         p.error("GPU is not visible inside this worker's allocation")
-    required = (
-        estimated * a.concurrency
-        + cfg.get("reserve_mb", 46080)
-        + cfg.get("margin_mb", 2048)
+    required = estimated * a.concurrency + minimum_free_mb(
+        selected,
+        {
+            "reserve_mb": cfg.get("reserve_mb", 46080),
+            "margin_mb": cfg.get("margin_mb", 2048),
+            "gpu_memory_percent": cfg.get("gpu_memory_percent", 80),
+        },
     )
     if selected["free_mb"] < required:
         p.error(f"Insufficient free memory: need {required} MiB including reservations")
@@ -81,6 +100,9 @@ for enabled in (False, True):
         for i in range(a.concurrency):
             out = a.output / ("mps" if enabled else "normal") / str(i)
             out.mkdir(parents=True)
+            if a.motion_csv:
+                (out / "motion").mkdir()
+                shutil.copy2(a.motion_csv, out / "motion/input.csv")
             local = {**env, "HUB_RUN_OUTPUT": str(out.resolve())}
             f = (out / "training.log").open("w")
             logs.append(f)
@@ -101,8 +123,13 @@ for enabled in (False, True):
             peak_used = max(peak_used, used)
             baseline = next(g for g in inv["gpus"] if g["uuid"] == a.gpu)
             peak_mb = max(peak_mb, used - (baseline["total_mb"] - baseline["free_mb"]))
-            if gpu["free_mb"] < cfg.get("reserve_mb", 46080) + cfg.get(
-                "margin_mb", 2048
+            if gpu["free_mb"] < minimum_free_mb(
+                gpu,
+                {
+                    "reserve_mb": cfg.get("reserve_mb", 46080),
+                    "margin_mb": cfg.get("margin_mb", 2048),
+                    "gpu_memory_percent": cfg.get("gpu_memory_percent", 80),
+                },
             ):
                 raise RuntimeError(
                     "Reservation crossed; stopping benchmark clients safely"

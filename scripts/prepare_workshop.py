@@ -64,7 +64,7 @@ if not path.exists():
         config = {
             **DEFAULT_SERVER,
             "max_envs": 2048,
-            "max_jobs": 1,
+            "max_jobs": 10,
             "reserve_mb": reserve,
             "institutional_permission": True,
             "gpu_limits": {},

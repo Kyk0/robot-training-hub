@@ -81,7 +81,7 @@ class DB:
                 if c.execute("SELECT 1 FROM settings WHERE id=1").fetchone()
                 else {}
             )
-            for key in ("max_running_jobs",):
+            for key in ("max_running_jobs", "gpu_memory_percent"):
                 if key not in current and current:
                     current[key] = DEFAULT_SETTINGS[key]
                     c.execute(

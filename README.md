@@ -4,7 +4,7 @@ A runnable React + TypeScript / FastAPI workshop platform for Booster K1 motion-
 
 ## Real workshop on this Mac
 
-Open <http://127.0.0.1:8000/login>. The organizer signs in with their email and generated password, saved privately in `data/workshop/admin-credentials.txt`. Admin → Participants approves emails and sets per-participant environment limits. The initial maximum is **2048 environments** and the adjustable global concurrent-job cap is **10**. The **Motions** page includes the real Booster MJ dance CSV, an interactive K1 preview, and CSV upload. Each run links to its authenticated TensorBoard and the training repository.
+Open <http://127.0.0.1:8000/login>. The organizer signs in with their email and generated password, saved privately in `data/workshop/admin-credentials.txt`. Admin → Participants approves emails and sets per-participant environment limits. The initial maximum is **2048 environments** and the adjustable global concurrent-job cap is **10**, and GPUs have an **80% memory ceiling**, accounting for other users and starting jobs. The **Motions** page includes the real Booster MJ dance CSV, an interactive K1 preview, and CSV upload. Each run links to its authenticated TensorBoard and the training repository.
 
 See [real workshop setup and commands](docs/REAL_WORKSHOP.md) for the three existing hosts, persistent services, private tunnels, email/HTTPS setup, and password recovery. `scripts/workshop.sh services` starts the Mac coordinator and connections; `scripts/workshop.sh serve` runs the real coordinator in the foreground. Demo mode below uses a separate database and must not run on the same port at the same time.
 

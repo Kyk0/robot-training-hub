@@ -43,6 +43,7 @@ DEFAULT_SETTINGS = {
     "presets": [256, 512, 1024, 2048],
     "max_iterations": 30000,
     "max_running_jobs": 10,
+    "gpu_memory_percent": 80,
     "motions": [],
     "tasks": ["Mjlab-Tracking-Flat-Booster-K1"],
     "memory_profiles": {"base_mb": 4096, "per_env_mb": 5.0, "safety_factor": 1.3},
@@ -52,7 +53,7 @@ DEFAULT_SETTINGS = {
 DEFAULT_SERVER = {
     "enabled": True,
     "max_envs": 2048,
-    "max_jobs": 1,
+    "max_jobs": 10,
     "reserve_mb": 46080,
     "margin_mb": 2048,
     "mode": "direct",

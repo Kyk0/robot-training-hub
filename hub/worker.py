@@ -18,6 +18,7 @@ import httpx
 from .db import pack, uid
 from .hardware import discover, mps_environment, command
 from .snapshots import extract_snapshot, verify, sha
+from .scheduler import minimum_free_mb
 
 log = logging.getLogger("worker")
 
@@ -306,7 +307,7 @@ class Worker:
                 )
                 if (
                     not gpu
-                    or gpu["free_mb"] - cfg["reserve_mb"] - cfg["margin_mb"]
+                    or gpu["free_mb"] - minimum_free_mb(gpu, cfg)
                     < assignment["estimated_mb"]
                 ):
                     raise RuntimeError(
@@ -456,12 +457,10 @@ class Worker:
                                 ),
                                 None,
                             )
-                            if (
-                                live_gpu
-                                and live_gpu["free_mb"]
-                                < cfg["reserve_mb"] + cfg["margin_mb"]
+                            if live_gpu and live_gpu["free_mb"] < minimum_free_mb(
+                                live_gpu, cfg
                             ):
-                                resource_error = "GPU free memory fell below the configured reservation; this workshop job was stopped"
+                                resource_error = "GPU memory crossed the configured usage ceiling or free-memory reservation; this workshop job was stopped"
                                 state["cancel"].set()
                             if time.monotonic() - last_event_sync > 10:
                                 self.sync_events(key, lease, output, event_offsets)

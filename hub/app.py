@@ -38,7 +38,7 @@ from .models import (
     Heartbeat,
     Report,
 )
-from .scheduler import schedule, estimate, public_job
+from .scheduler import schedule, estimate, public_job, server_capacity
 from .snapshots import create_snapshot, safe_path, verify, zip_tree, sha
 
 from .motions import (
@@ -771,6 +771,7 @@ def create_app(cfg=None):
     @app.get("/api/admin/servers")
     def servers(u=Depends(admin)):
         with db.connect() as c:
+            settings = db.settings(c)
             result = []
             for r in c.execute("SELECT * FROM servers ORDER BY name"):
                 d = dict(r)
@@ -778,6 +779,7 @@ def create_app(cfg=None):
                 d["config"] = unpack(d["config"])
                 d["inventory"] = unpack(d["inventory"])
                 d["online"] = d["last_seen"] > now() - cfg.heartbeat_timeout
+                d["capacity"] = server_capacity(c, r, settings, d["online"])
                 d["active_jobs"] = c.execute(
                     "SELECT count(*) FROM jobs WHERE server_id=? AND status IN ('STARTING','RUNNING')",
                     (d["id"],),
