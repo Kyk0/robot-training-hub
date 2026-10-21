@@ -1,0 +1,17 @@
+[Unit]
+Description=Robot Training Hub coordinator (isolated workshop service)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/robot-training-hub
+EnvironmentFile=%h/robot-training-hub/data/coordinator.env
+ExecStart=%h/robot-training-hub/.venv/bin/uvicorn hub.app:app --host 127.0.0.1 --port 8010 --workers 1 --no-access-log --proxy-headers --forwarded-allow-ips 127.0.0.1
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+TimeoutStopSec=45
+
+[Install]
+WantedBy=default.target
