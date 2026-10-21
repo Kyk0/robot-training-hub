@@ -350,3 +350,14 @@ def test_migrated_archive_cannot_start_a_second_coordinator(tmp_path):
     with pytest.raises(RuntimeError, match="pre-migration archive"):
         DB(Config(data=data))
     assert not (data / "hub.sqlite3").exists()
+
+
+def test_read_connections_close_after_each_request_scope(setup):
+    import sqlite3
+
+    _, db, _, _ = setup
+    for _ in range(100):
+        with db.connect() as connection:
+            assert connection.execute("SELECT 1").fetchone()[0] == 1
+        with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+            connection.execute("SELECT 1")

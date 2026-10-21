@@ -67,6 +67,14 @@ CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY, at REAL NOT NULL, 
 """
 
 
+class ClosingConnection(sqlite3.Connection):
+    def __exit__(self, *args):
+        try:
+            return super().__exit__(*args)
+        finally:
+            self.close()
+
+
 class DB:
     def __init__(self, cfg):
         if (cfg.data / ".hosted-on-workstation").exists():
@@ -96,7 +104,9 @@ class DB:
             )
 
     def connect(self):
-        c = sqlite3.connect(self.cfg.db, timeout=30, isolation_level=None)
+        c = sqlite3.connect(
+            self.cfg.db, timeout=30, isolation_level=None, factory=ClosingConnection
+        )
         c.row_factory = sqlite3.Row
         c.execute("PRAGMA journal_mode=WAL")
         c.execute("PRAGMA foreign_keys=ON")
