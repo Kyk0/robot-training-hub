@@ -32,7 +32,7 @@ for item in json.loads((cfg.data / "worker-connections.json").read_text()):
                     "-m",
                     "hub.worker",
                     "--coordinator",
-                    "http://127.0.0.1:" + str(item["port"]),
+                    item.get("coordinator", "http://127.0.0.1:" + str(item["port"])),
                     "--token-file",
                     runtime + "/worker.token",
                     "--root",

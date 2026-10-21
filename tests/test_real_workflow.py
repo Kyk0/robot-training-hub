@@ -338,3 +338,15 @@ def test_workshop_environment_defaults_and_power_of_two_validation(setup):
         ).status_code
         == 422
     )
+
+
+def test_migrated_archive_cannot_start_a_second_coordinator(tmp_path):
+    from hub.config import Config
+    from hub.db import DB
+
+    data = tmp_path / "archived-data"
+    data.mkdir()
+    (data / ".hosted-on-workstation").write_text("Moved to the workstation")
+    with pytest.raises(RuntimeError, match="pre-migration archive"):
+        DB(Config(data=data))
+    assert not (data / "hub.sqlite3").exists()

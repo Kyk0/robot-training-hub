@@ -10,6 +10,7 @@ import logging
 import os
 from pathlib import Path
 import secrets
+import socket
 import smtplib
 import sqlite3
 import time
@@ -704,6 +705,7 @@ def create_app(cfg=None):
                 for r in c.execute("SELECT status,count(*) n FROM jobs GROUP BY status")
             }
             return {
+                "coordinator_host": socket.gethostname(),
                 "participants": c.execute(
                     "SELECT count(*) FROM users WHERE role='participant'"
                 ).fetchone()[0],

@@ -69,6 +69,10 @@ CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY, at REAL NOT NULL, 
 
 class DB:
     def __init__(self, cfg):
+        if (cfg.data / ".hosted-on-workstation").exists():
+            raise RuntimeError(
+                "This is the pre-migration archive. The live coordinator runs on the Coordinator host; use the SSH preview or administer that host."
+            )
         self.cfg = cfg
         cfg.data.mkdir(parents=True, exist_ok=True, mode=0o700)
         with self.connect() as c:

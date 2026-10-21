@@ -180,7 +180,7 @@ code {
 }
 .button.small {
   padding: 7px 12px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .button.danger {
   background: #fff5f5;
@@ -204,7 +204,7 @@ code {
   color: var(--muted);
 }
 .eyebrow {
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 2.3px;
   font-weight: 700;
   color: #9382cd;
@@ -265,7 +265,7 @@ code {
   border-radius: 12px;
   padding: 14px 12px;
   margin: 35px 0 24px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: #dedff2;
 }
@@ -274,7 +274,7 @@ code {
 }
 .workspace small {
   display: block;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 400;
   color: #8089a8;
   margin-top: 2px;
@@ -311,7 +311,7 @@ code {
   color: #fff;
 }
 .nav-label {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
   letter-spacing: 2px;
   color: #616d91;
@@ -338,7 +338,7 @@ code {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
 }
 .profile > div {
@@ -346,7 +346,7 @@ code {
   min-width: 0;
 }
 .profile b {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 550;
   display: block;
   overflow: hidden;
@@ -356,7 +356,7 @@ code {
 }
 .profile small {
   display: block;
-  font-size: 10px;
+  font-size: 11px;
   color: #7d87a8;
   text-transform: capitalize;
   margin-top: 1px;
@@ -395,7 +395,7 @@ code {
   border: 1px solid #e9e3fa;
   color: #8974c9;
   border-radius: 22px;
-  font-size: 11px;
+  font-size: 12px;
   padding: 7px 12px;
 }
 .content {
@@ -428,11 +428,11 @@ code {
   padding: 29px 0;
   margin-top: 22px;
   color: #abb0c4;
-  font-size: 10px;
+  font-size: 11px;
   border-top: 1px solid #e8eaf2;
 }
 .footer > span:first-child {
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 1.8px;
 }
 .workshop-hero {
@@ -460,7 +460,7 @@ code {
   gap: 8px;
   align-items: center;
   color: #b6afd7;
-  font-size: 8px;
+  font-size: 10px;
   letter-spacing: 1.75px;
   font-weight: 650;
 }
@@ -481,7 +481,7 @@ code {
 }
 .workshop-hero p {
   max-width: 410px;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.85;
   color: #aaaac5;
   margin-top: 14px;
@@ -493,7 +493,7 @@ code {
 .hero-primary {
   background: #c0adfa;
   color: #2f2750;
-  font-size: 11px;
+  font-size: 12px;
   padding: 10px 14px;
   box-shadow: none;
 }
@@ -506,7 +506,7 @@ code {
   align-items: center;
   gap: 7px;
   color: #c4bedc;
-  font-size: 11px;
+  font-size: 12px;
 }
 .hero-secondary:hover {
   color: #fff;
@@ -532,7 +532,7 @@ code {
   border: 1px solid #ffffff12;
   border-radius: 10px;
   color: #d9d5ec;
-  font-size: 10px;
+  font-size: 11px;
   padding: 10px 14px;
   display: grid;
   grid-template-columns: 6px auto;
@@ -549,7 +549,7 @@ code {
 .hero-model-label small {
   grid-column: 2;
   color: #9796b5;
-  font-size: 8px;
+  font-size: 10px;
 }
 .stats {
   display: grid;
@@ -579,7 +579,7 @@ code {
   background: linear-gradient(135deg, #ede8fb, #f5f1ff);
 }
 .stat-top {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   color: #8a91a9;
   margin-bottom: 13px;
@@ -626,7 +626,7 @@ code {
   padding: 22px 25px;
 }
 .section-title p {
-  font-size: 11px;
+  font-size: 12px;
   margin-top: 4px;
 }
 .section-title.outside {
@@ -656,7 +656,7 @@ code {
   transform: translateY(-2px);
 }
 .resource-card p {
-  font-size: 11px;
+  font-size: 12px;
   margin-top: 7px;
   line-height: 1.8;
   max-width: 440px;
@@ -665,7 +665,7 @@ code {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--accent);
   margin-top: 13px;
 }
@@ -696,7 +696,7 @@ table {
 }
 th {
   color: #9ba1b5;
-  font-size: 9px;
+  font-size: 10px;
   letter-spacing: 0.5px;
   font-weight: 550;
   background: #fcfcff;
@@ -718,7 +718,7 @@ tbody tr:hover {
 td > small,
 td small {
   display: block;
-  font-size: 9px;
+  font-size: 10px;
   color: #a0a6b9;
   margin-top: 4px;
 }
@@ -732,7 +732,7 @@ td small {
   align-items: center;
   gap: 5px;
   padding: 5px 9px;
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1.4;
   font-weight: 550;
   border-radius: 6px;
@@ -775,7 +775,7 @@ td small {
   background: #f1f2f7;
 }
 .mini-progress {
-  font-size: 10px;
+  font-size: 11px;
   color: #838aa0;
   min-width: 95px;
 }
@@ -833,7 +833,7 @@ progress::-moz-progress-bar {
   background: transparent;
   box-shadow: none;
   padding: 10px 0;
-  font-size: 11px;
+  font-size: 12px;
 }
 .filterbar .search {
   max-width: 350px;
@@ -841,7 +841,7 @@ progress::-moz-progress-bar {
 }
 .filterbar select {
   max-width: 170px;
-  font-size: 11px;
+  font-size: 12px;
   padding: 10px 13px;
 }
 .error,
@@ -925,7 +925,7 @@ progress::-moz-progress-bar {
   color: #626a85;
 }
 .environment-option small {
-  font-size: 10px;
+  font-size: 11px;
   margin-top: 3px;
   color: #929bb2;
 }
@@ -953,7 +953,7 @@ progress::-moz-progress-bar {
   margin-top: 28px;
 }
 .form-submit > span {
-  font-size: 10px;
+  font-size: 11px;
   color: #9ba1b7;
 }
 .savebar {
@@ -978,7 +978,7 @@ progress::-moz-progress-bar {
   justify-content: space-between;
   gap: 18px;
   padding: 18px 23px;
-  font-size: 11px;
+  font-size: 12px;
   color: #939bb1;
 }
 .run-status > div {
@@ -1008,7 +1008,7 @@ progress::-moz-progress-bar {
 }
 .tabs a {
   margin-left: auto;
-  font-size: 11px;
+  font-size: 12px;
 }
 .chart {
   display: block;
@@ -1018,7 +1018,7 @@ progress::-moz-progress-bar {
 }
 .chart text {
   fill: #a3a7b9;
-  font-size: 10px;
+  font-size: 11px;
 }
 .chart-footer {
   display: flex;
@@ -1027,7 +1027,7 @@ progress::-moz-progress-bar {
   gap: 20px;
   padding: 19px 25px;
   border-top: 1px solid var(--line);
-  font-size: 11px;
+  font-size: 12px;
   color: #9aa1b6;
 }
 .chart-footer progress {
@@ -1040,7 +1040,7 @@ progress::-moz-progress-bar {
   color: #b7bed7;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.9;
   max-height: 650px;
   overflow: auto;
@@ -1059,13 +1059,13 @@ progress::-moz-progress-bar {
   color: #ac98df;
 }
 .artifact-list b {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   overflow-wrap: anywhere;
 }
 .artifact-list small {
   display: block;
-  font-size: 10px;
+  font-size: 11px;
   color: #9da4ba;
   margin-top: 4px;
 }
@@ -1074,7 +1074,7 @@ dl {
   grid-template-columns: 130px 1fr;
   gap: 12px;
   margin: 18px 0 0;
-  font-size: 11px;
+  font-size: 12px;
 }
 dt {
   color: #a1a7bc;
@@ -1112,7 +1112,7 @@ dd {
   white-space: nowrap;
 }
 .server-card-head .badge {
-  font-size: 8px;
+  font-size: 10px;
   padding: 4px 6px;
 }
 .gpu {
@@ -1127,12 +1127,12 @@ dd {
   margin-bottom: 17px;
 }
 .gpu-label b {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 500;
   color: #6f7791;
 }
 .gpu-label > span {
-  font-size: 9px;
+  font-size: 10px;
   color: #a0a7bb;
 }
 .gpu progress {
@@ -1146,19 +1146,19 @@ dd {
   gap: 4px;
   margin-top: 10px;
   color: #9ca4b9;
-  font-size: 9px;
+  font-size: 10px;
 }
 .server-info {
   display: flex;
   justify-content: space-between;
   gap: 7px;
   padding: 0 21px 14px;
-  font-size: 9px;
+  font-size: 10px;
   color: #a1a6ba;
 }
 .server-capacity {
   padding: 0 21px 18px;
-  font-size: 9px;
+  font-size: 10px;
   color: #9b88ba;
 }
 .server-card-foot {
@@ -1169,20 +1169,20 @@ dd {
   padding: 13px 21px;
   background: #fdfdff;
   color: #a6acc0;
-  font-size: 9px;
+  font-size: 10px;
 }
 .server-card-foot button {
   display: flex;
   align-items: center;
   gap: 7px;
   color: #927fc5;
-  font-size: 10px;
+  font-size: 11px;
 }
 .mock-label {
   padding: 8px 21px;
   background: #fff9ef;
   color: #bd9a5d;
-  font-size: 9px;
+  font-size: 10px;
 }
 .modal-backdrop {
   position: fixed;
@@ -1230,7 +1230,7 @@ dd {
 }
 .modal-footer > span {
   margin-right: auto;
-  font-size: 10px;
+  font-size: 11px;
   color: #a1a7bc;
 }
 .reconcile {
@@ -1250,7 +1250,7 @@ dd {
   margin-top: 15px;
 }
 .token-row input {
-  font-size: 11px;
+  font-size: 12px;
 }
 .toast {
   position: fixed;
@@ -1322,7 +1322,7 @@ dd {
 }
 .pill {
   display: inline-block;
-  font-size: 8px;
+  font-size: 10px;
   letter-spacing: 2px;
   font-weight: 550;
   color: #b7a9db;
@@ -1356,14 +1356,14 @@ dd {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  font-size: 11px;
+  font-size: 12px;
   color: #a7a7c7;
   margin-top: 12px;
 }
 .auth-copy > .text-link {
   color: #b4a7dd;
   margin-top: 25px;
-  font-size: 10px;
+  font-size: 11px;
 }
 .auth-form {
   width: 100%;
@@ -1385,7 +1385,7 @@ dd {
   margin: 32px 0 20px;
 }
 .auth-form label {
-  font-size: 11px;
+  font-size: 12px;
   margin-top: 20px;
 }
 .auth-form input {
@@ -1400,17 +1400,17 @@ dd {
 .auth-switch {
   border-top: 1px solid var(--line);
   padding-top: 22px;
-  font-size: 11px !important;
+  font-size: 12px !important;
 }
 .auth-form > .text-link {
-  font-size: 11px;
+  font-size: 12px;
   margin-top: 15px;
 }
 .auth-note {
   display: flex;
   align-items: center;
   gap: 9px;
-  font-size: 10px;
+  font-size: 11px;
   color: #a4aabf;
   margin-top: 45px;
 }
@@ -1425,7 +1425,7 @@ dd {
   margin-top: 23px;
 }
 .demo-login b {
-  font-size: 10px;
+  font-size: 11px;
   color: #9989b5;
 }
 .auth-form .demo-login .button {
@@ -1475,11 +1475,11 @@ dd {
 .motion-item small {
   display: block;
   color: #ab9ebe;
-  font-size: 9px;
+  font-size: 10px;
   margin: 6px 0 12px;
 }
 .motion-item .badge {
-  font-size: 8px;
+  font-size: 10px;
 }
 .motion-preview {
   position: relative;
@@ -1515,7 +1515,7 @@ dd {
   cursor: pointer;
 }
 .motion-controls span {
-  font-size: 10px;
+  font-size: 11px;
   color: #a2a8bd;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -1523,11 +1523,11 @@ dd {
 .motion-controls select {
   width: 66px;
   padding: 5px 7px;
-  font-size: 10px;
+  font-size: 11px;
   border-radius: 6px;
 }
 .viewer-note {
-  font-size: 10px;
+  font-size: 11px;
   padding: 0 20px 17px;
   color: #a0a8ba;
   line-height: 1.7;
@@ -1542,11 +1542,11 @@ dd {
   font-size: 12px;
 }
 .upload-form > p {
-  font-size: 11px;
+  font-size: 12px;
   margin: 17px 0 0;
 }
 .upload-form input[type="file"] {
-  font-size: 11px;
+  font-size: 12px;
   padding: 10px;
 }
 .upload-form input[type="file"]::file-selector-button {
@@ -1556,7 +1556,7 @@ dd {
   margin-right: 10px;
   color: #8a78ae;
   background: #f0eafa;
-  font-size: 10px;
+  font-size: 11px;
 }
 .content:has(.motion-layout) {
   display: flex;
@@ -1615,10 +1615,10 @@ dd {
     gap: 7px;
   }
   .server-card-head h3 {
-    font-size: 11px;
+    font-size: 12px;
   }
   .server-card-head > .badge {
-    font-size: 7px;
+    font-size: 9px;
   }
   .gpu,
   .server-info,
@@ -1637,7 +1637,7 @@ dd {
     font-size: 30px;
   }
   .workshop-hero p {
-    font-size: 10px;
+    font-size: 11px;
   }
   .workshop-hero-art .robot-art {
     width: 315px;
@@ -1693,21 +1693,21 @@ dd {
   }
   .sidebar nav > a {
     padding: 11px;
-    font-size: 11px;
+    font-size: 12px;
     gap: 10px;
   }
   .workspace {
     padding: 10px;
-    font-size: 10px;
+    font-size: 11px;
   }
   .workspace small {
-    font-size: 8px;
+    font-size: 10px;
   }
   .profile b {
-    font-size: 9px;
+    font-size: 10px;
   }
   .profile small {
-    font-size: 9px;
+    font-size: 10px;
   }
   .topbar {
     height: 68px;
@@ -1722,7 +1722,7 @@ dd {
     align-items: flex-start;
   }
   .page-head p {
-    font-size: 11px;
+    font-size: 12px;
   }
   .server-grid {
     grid-template-columns: 1fr;
@@ -1731,7 +1731,7 @@ dd {
     font-size: 13px;
   }
   .server-card-head > .badge {
-    font-size: 9px;
+    font-size: 10px;
   }
   .gpu-label b {
     font-size: 12px;
@@ -1739,10 +1739,10 @@ dd {
   .server-info,
   .gpu-memory,
   .server-card-foot {
-    font-size: 10px;
+    font-size: 11px;
   }
   .server-capacity {
-    font-size: 10px;
+    font-size: 11px;
   }
   .workshop-hero {
     grid-template-columns: 1fr 0.6fr;
@@ -1765,16 +1765,16 @@ dd {
     display: none;
   }
   .hero-kicker {
-    font-size: 7px;
+    font-size: 9px;
   }
   .workshop-hero .actions {
     gap: 15px;
   }
   .hero-secondary {
-    font-size: 10px;
+    font-size: 11px;
   }
   .hero-primary {
-    font-size: 10px;
+    font-size: 11px;
     padding: 10px 12px;
   }
   .stats,
@@ -1791,7 +1791,7 @@ dd {
     display: none;
   }
   .stat-top {
-    font-size: 10px;
+    font-size: 11px;
   }
   .two-col {
     grid-template-columns: 1fr;
@@ -1851,7 +1851,7 @@ dd {
     padding: 55px 27px;
   }
   .auth-copy > p {
-    font-size: 11px;
+    font-size: 12px;
   }
 }
 @media (max-width: 700px) {
@@ -1874,10 +1874,10 @@ dd {
     font-size: 12px;
   }
   .workspace {
-    font-size: 11px;
+    font-size: 12px;
   }
   .workspace small {
-    font-size: 10px;
+    font-size: 11px;
   }
   .mobile-menu {
     display: flex;
@@ -1906,10 +1906,10 @@ dd {
   }
   .topbar > div {
     gap: 7px;
-    font-size: 10px;
+    font-size: 11px;
   }
   .role-pill {
-    font-size: 9px;
+    font-size: 10px;
     padding: 5px 8px;
   }
   .role-pill svg {
@@ -1930,7 +1930,7 @@ dd {
     margin-top: 17px;
   }
   .page-head p {
-    font-size: 11px;
+    font-size: 12px;
   }
   .workshop-hero {
     grid-template-columns: 1fr;
@@ -1945,7 +1945,7 @@ dd {
     max-width: 250px;
   }
   .workshop-hero p {
-    font-size: 10px;
+    font-size: 11px;
     max-width: 240px;
   }
   .workshop-hero-art {
@@ -1969,10 +1969,10 @@ dd {
     gap: 15px;
   }
   .hero-kicker {
-    font-size: 7px;
+    font-size: 9px;
   }
   .hero-secondary {
-    font-size: 10px;
+    font-size: 11px;
   }
   .stats {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1987,7 +1987,7 @@ dd {
     border-radius: 12px;
   }
   .stat-top {
-    font-size: 9px;
+    font-size: 10px;
     margin-bottom: 10px;
   }
   .stat strong {
@@ -2014,7 +2014,7 @@ dd {
     gap: 15px;
   }
   .resource-card p {
-    font-size: 10px;
+    font-size: 11px;
   }
   .resource-icon {
     width: 38px;
@@ -2063,17 +2063,17 @@ dd {
   }
   .filterbar select {
     max-width: 120px;
-    font-size: 10px;
+    font-size: 11px;
   }
   .tabs {
     gap: 0;
   }
   .tabs button {
     padding: 10px 12px;
-    font-size: 11px;
+    font-size: 12px;
   }
   .tabs a {
-    font-size: 9px;
+    font-size: 10px;
     padding: 10px 5px;
     margin-left: auto;
     gap: 4px;
@@ -2082,15 +2082,15 @@ dd {
     align-items: flex-start;
     flex-direction: column;
     gap: 11px;
-    font-size: 10px;
+    font-size: 11px;
     padding: 17px 20px;
   }
   .run-status > span {
-    font-size: 9px;
+    font-size: 10px;
   }
   .chart-footer {
     padding: 17px 20px;
-    font-size: 10px;
+    font-size: 11px;
     gap: 14px;
   }
   .chart-footer progress {
@@ -2098,7 +2098,7 @@ dd {
   }
   dl {
     grid-template-columns: 75px 1fr;
-    font-size: 10px;
+    font-size: 11px;
     gap: 12px;
   }
   .modal-backdrop {
@@ -2115,7 +2115,7 @@ dd {
     padding: 18px 20px;
   }
   .modal-footer > span {
-    font-size: 9px;
+    font-size: 10px;
   }
   .modal .section-title h2 {
     font-size: 14px;
@@ -2134,7 +2134,7 @@ dd {
   .toast {
     left: 50%;
     max-width: 92%;
-    font-size: 11px;
+    font-size: 12px;
   }
   .motion-canvas {
     height: 360px;
@@ -2147,14 +2147,14 @@ dd {
     min-width: 90px;
   }
   .motion-controls span {
-    font-size: 9px;
+    font-size: 10px;
   }
   .motion-controls select {
     width: 55px;
-    font-size: 9px;
+    font-size: 10px;
   }
   .viewer-note {
-    font-size: 9px;
+    font-size: 10px;
     padding: 0 15px 16px;
   }
   .section-title.outside {
@@ -2168,12 +2168,12 @@ dd {
     flex-wrap: nowrap;
   }
   .section-title.outside .button {
-    font-size: 9px;
+    font-size: 10px;
     padding: 8px 10px;
     gap: 5px;
   }
   .section-title.outside p {
-    font-size: 9px;
+    font-size: 10px;
   }
   .auth-page {
     display: block;
@@ -2206,7 +2206,7 @@ dd {
     z-index: 2;
   }
   .auth-copy > p {
-    font-size: 10px;
+    font-size: 11px;
     max-width: 220px;
     position: relative;
     z-index: 2;
@@ -2238,15 +2238,15 @@ dd {
     margin-top: 30px;
   }
   .auth-form .eyebrow {
-    font-size: 8px;
+    font-size: 10px;
   }
   .footer {
-    font-size: 9px;
+    font-size: 10px;
     padding: 22px 0;
     gap: 15px;
   }
   .footer > span:first-child {
-    font-size: 7px;
+    font-size: 9px;
     letter-spacing: 1px;
   }
 }
@@ -2268,4 +2268,87 @@ dd {
   border-radius: 9px;
   font-size: 12px;
   font-weight: 550;
+}
+
+.fleet-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  margin: 34px 0 20px;
+}
+.fleet-heading .eyebrow {
+  font-size: 9px;
+  margin-bottom: 7px;
+}
+.fleet-heading h2 {
+  font-size: 20px;
+}
+.coordinator-tag {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+  color: #a69aba;
+  border: 1px solid #e9e4f1;
+  border-radius: 8px;
+  padding: 8px 11px;
+  background: #faf9fd;
+}
+@media (max-width: 700px) {
+  .fleet-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    margin-top: 28px;
+    gap: 12px;
+  }
+  .fleet-heading h2 {
+    font-size: 18px;
+  }
+}
+/* Keep live metadata readable on the light surfaces. */
+:root {
+  --muted: #6c758d;
+}
+.stat-top,
+.gpu-label b,
+.gpu-label > span,
+.gpu-memory,
+.server-info,
+.server-capacity,
+.server-card-foot,
+.mini-progress,
+.viewer-note,
+.motion-controls span,
+.motion-item small,
+td > small,
+td small,
+th,
+.chart-footer {
+  color: #6d758b;
+}
+.server-info {
+  flex-wrap: wrap;
+}
+.badge.running,
+.badge.online,
+.badge.approved {
+  color: #397e6b;
+}
+.badge.completed {
+  color: #7655af;
+}
+.badge.queued,
+.badge.starting,
+.badge.pending {
+  color: #8d6b32;
+}
+.badge.failed,
+.badge.quarantined {
+  color: #a3596c;
+}
+.badge.canceled,
+.badge.offline,
+.badge.disabled {
+  color: #71788f;
 }

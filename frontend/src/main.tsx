@@ -1467,6 +1467,16 @@ function AdminOverview() {
           value={o?.settings.max_running_jobs ?? 10}
         />
       </div>
+      <div className="fleet-heading">
+        <div>
+          <span className="eyebrow">WORKSHOP INFRASTRUCTURE</span>
+          <h2>Compute fleet</h2>
+        </div>
+        <span className="coordinator-tag">
+          <Server size={13} />
+          Coordinator · {o?.coordinator_host || "Connecting"}
+        </span>
+      </div>
       <div className="server-grid">
         {servers?.map((s) => (
           <ServerCard key={s.id} server={s} />
@@ -1605,13 +1615,19 @@ function Servers() {
                 onChange={(v) => update("institutional_permission", v)}
               />
               <div className="form-grid">
-                <Field
-                  label="Maximum environments per job"
-                  value={config.max_envs}
-                  min={1}
-                  max={16384}
-                  onChange={(v) => update("max_envs", v)}
-                />
+                <label>
+                  Maximum environments per job
+                  <select
+                    value={config.max_envs}
+                    onChange={(e) => update("max_envs", Number(e.target.value))}
+                  >
+                    {ENV_OPTIONS.map((n) => (
+                      <option key={n} value={n}>
+                        {n.toLocaleString()}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <Field
                   label="Concurrent jobs per GPU"
                   value={config.max_jobs}

@@ -2,11 +2,13 @@
 
 A runnable React + TypeScript / FastAPI workshop platform for Booster K1 motion-tracking RL. SQLite owns the durable queue; outbound Python workers discover GPUs and execute frozen source snapshots using each host's existing Booster mjlab environment. No SSH access is given to participants.
 
-## Real workshop on this Mac
+## Current workshop deployment
 
-Open <http://127.0.0.1:8000/login>. The organizer signs in with their email and generated password, saved privately in `data/workshop/admin-credentials.txt`. Admin → Participants approves emails and sets per-participant environment limits. The initial maximum is **2048 environments** and the adjustable global concurrent-job cap is **10**, and GPUs have an **80% memory ceiling**, accounting for other users and starting jobs. The **Motions** page includes the real Booster MJ dance CSV, an interactive K1 preview, and CSV upload. Each run links to its authenticated TensorBoard and the training repository.
+The backend now runs on the Coordinator host at private loopback port 8010. Open <http://127.0.0.1:8000/login> on the Mac through the existing SSH preview proxy. Sign in with the organizer email and password saved privately in `data/workshop/admin-credentials.txt`. The Mac data directory is a pre-migration archive; live accounts and artifacts are on the workstation.
 
-See [real workshop setup and commands](docs/REAL_WORKSHOP.md) for the three existing hosts, persistent services, private tunnels, email/HTTPS setup, and password recovery. `scripts/workshop.sh services` starts the Mac coordinator and connections; `scripts/workshop.sh serve` runs the real coordinator in the foreground. Demo mode below uses a separate database and must not run on the same port at the same time.
+Environment choices are **1024 / 2048 / 4096**, default **2048**, with an **80% GPU memory ceiling**, **10 running jobs total**, and the stricter H100 memory reserve. Public HTTPS/networking was explicitly deferred. The GitHub Pages entry page is published separately and its launch button remains disabled until that connection is ready.
+
+See [current deployment, validation, and next steps](docs/CURRENT_STATUS.md). The private source repository is [Kyk0/robot-training-hub](https://github.com/Kyk0/robot-training-hub). `scripts/workshop.sh services` starts the Mac's private preview proxy; it does not start a second coordinator. The historical local/demo setup below remains available for isolated testing.
 
 ## Quick local demonstration
 
