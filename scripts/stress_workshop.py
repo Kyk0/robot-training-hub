@@ -29,12 +29,29 @@ def participant(case):
     url, token, name, motion, envs, iterations, deadline = case
     latencies = []
     job_id = None
+    transient_errors = 0
 
     def request(c, method, path, **kwargs):
-        start = time.monotonic()
-        response = c.request(method, path, **kwargs)
-        latencies.append(time.monotonic() - start)
-        return response
+        nonlocal transient_errors
+        for attempt in range(6):
+            start = time.monotonic()
+            try:
+                response = c.request(method, path, **kwargs)
+                latencies.append(time.monotonic() - start)
+                if method != "GET" or response.status_code not in (502, 503, 504):
+                    return response
+                transient_errors += 1
+            except httpx.ConnectError:
+                # A connection/TLS handshake failed before the request was sent.
+                transient_errors += 1
+                if attempt == 5:
+                    raise
+            except httpx.TransportError:
+                transient_errors += 1
+                if method != "GET" or attempt == 5:
+                    raise
+            time.sleep(1)
+        response.raise_for_status()
 
     try:
         with httpx.Client(
@@ -109,6 +126,7 @@ def participant(case):
                         "requests": len(latencies),
                         "p95_seconds": percentile(latencies, 0.95),
                         "saw_queue": first_queued is not None,
+                        "transient_errors": transient_errors,
                     }
                 time.sleep(2)
             request(c, "POST", "/api/runs/" + job_id + "/cancel").raise_for_status()
@@ -130,15 +148,25 @@ def participant(case):
 
 
 def traffic(case):
-    url, seconds = case
+    url, seconds, token = case
     times = []
     codes = Counter()
     deadline = time.monotonic() + seconds
-    with httpx.Client(base_url=url, timeout=30) as c:
+    with httpx.Client(base_url=url, headers={"X-Hub-Request": "1"}, timeout=30) as c:
+        for attempt in range(6):
+            try:
+                c.post("/api/auth/verify", json={"token": token}).raise_for_status()
+                break
+            except httpx.ConnectError:
+                codes["connect_error"] += 1
+                if attempt == 5:
+                    raise
+                time.sleep(1)
+        paths = ("/api/health", "/api/runs", "/api/options", "/api/motions")
         while time.monotonic() < deadline:
             start = time.monotonic()
             try:
-                r = c.get("/api/health")
+                r = c.get(paths[len(times) % len(paths)])
                 codes[str(r.status_code)] += 1
             except httpx.HTTPError:
                 codes["transport_error"] += 1
@@ -231,6 +259,19 @@ def main():
                 deadline,
             )
         )
+    traffic_cases = []
+    for _ in range(args.traffic_processes):
+        invitation = admin.post(
+            "/api/admin/users/" + accounts[emails[0]]["id"] + "/invite"
+        )
+        invitation.raise_for_status()
+        traffic_cases.append(
+            (
+                args.url,
+                args.traffic_seconds,
+                invitation.json()["url"].split("token=")[1],
+            )
+        )
     samples = []
     results = []
     traffic_results = []
@@ -249,10 +290,7 @@ def main():
             mp_context=multiprocessing.get_context("spawn"),
         ) as pool:
             futures = [pool.submit(participant, case) for case in cases]
-            traffic_futures = [
-                pool.submit(traffic, (args.url, args.traffic_seconds))
-                for _ in range(args.traffic_processes)
-            ]
+            traffic_futures = [pool.submit(traffic, case) for case in traffic_cases]
             while not all(f.done() for f in futures):
                 runs = admin.get("/api/runs", params={"q": identity}).json()
                 counts = Counter(j["status"] for j in runs)
@@ -324,7 +362,11 @@ def main():
                     break
                 time.sleep(3)
             results = [f.result() for f in futures]
-            traffic_results = [f.result() for f in traffic_futures]
+            for future in traffic_futures:
+                try:
+                    traffic_results.append(future.result())
+                except Exception as exc:
+                    traffic_results.append({"error": str(exc)})
     finally:
         current = admin.get("/api/runs", params={"q": identity}).json()
         for job in current:
@@ -363,6 +405,7 @@ def main():
         len(results) != args.participants
         or statuses.get("COMPLETED") != args.participants
         or violations
+        or any(result.get("error") for result in traffic_results)
     ):
         raise SystemExit(1)
 

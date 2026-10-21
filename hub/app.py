@@ -3,7 +3,6 @@ import fcntl
 import re
 import httpx
 from contextlib import asynccontextmanager
-import io
 import ipaddress
 import json
 import logging
@@ -19,7 +18,6 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, Depends, HTTPException, Request, Response
 from fastapi.responses import (
     FileResponse,
-    StreamingResponse,
     RedirectResponse,
     JSONResponse,
 )
@@ -650,8 +648,8 @@ def create_app(cfg=None):
     @app.get("/api/code/{key}/download")
     def download_source(key: str, u=Depends(user)):
         root = source_root(key, u)
-        return StreamingResponse(
-            io.BytesIO(zip_tree(root)),
+        return Response(
+            zip_tree(root),
             media_type="application/zip",
             headers={
                 "Content-Disposition": f'attachment; filename="source-{key if key == "base" else root.name}.zip"'
@@ -911,9 +909,7 @@ def create_app(cfg=None):
             r = assigned(c, key, w)
         root = cfg.data / "snapshots" / r["id"]
         verify(root, r["snapshot"])
-        return StreamingResponse(
-            io.BytesIO(zip_tree(root)), media_type="application/zip"
-        )
+        return Response(zip_tree(root), media_type="application/zip")
 
     @app.post("/api/worker/runs/{key}/report")
     def report(key: str, body: Report, w=Depends(worker)):

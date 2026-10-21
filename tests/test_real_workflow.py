@@ -361,3 +361,25 @@ def test_read_connections_close_after_each_request_scope(setup):
             assert connection.execute("SELECT 1").fetchone()[0] == 1
         with pytest.raises(sqlite3.ProgrammingError, match="closed"):
             connection.execute("SELECT 1")
+
+
+def test_binary_source_downloads_have_exact_response_lengths(setup, job):
+    app, db, cfg, client = setup
+    admin = client("admin@example.org")
+    alice = client("alice@example.org")
+    worker, _ = enroll(app, admin)
+    heartbeat(worker)
+    key = alice.post("/api/runs", json=job).json()["id"]
+    heartbeat(worker)
+    for c, path in (
+        (alice, f"/api/code/{key}/download"),
+        (worker, f"/api/worker/runs/{key}/source"),
+    ):
+        r = c.get(path)
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "application/zip"
+        assert int(r.headers["content-length"]) == len(r.content)
+        import io, zipfile
+
+        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+            assert "hub_launch.py" in z.namelist() and "manifest.json" in z.namelist()
