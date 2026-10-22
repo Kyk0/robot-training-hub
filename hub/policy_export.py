@@ -14,12 +14,40 @@ def validate_onnx(path):
     onnx.checker.check_model(onnx.load(path, load_external_data=False))
 
 
+def retain_checkpoints(output, checkpoint):
+    """Bound this run's native checkpoints after a successful upstream save."""
+    output = Path(output).resolve()
+    checkpoint = Path(checkpoint)
+    if (
+        checkpoint.is_symlink()
+        or not checkpoint.is_file()
+        or not checkpoint.resolve().is_relative_to(output)
+        or not re.fullmatch(r"model_\d+\.pt", checkpoint.name)
+    ):
+        return
+    checkpoints = sorted(
+        (
+            p
+            for p in checkpoint.parent.glob("model_*.pt")
+            if not p.is_symlink()
+            and p.is_file()
+            and re.fullmatch(r"model_\d+\.pt", p.name)
+        ),
+        key=lambda p: int(p.stem.removeprefix("model_")),
+    )
+    retained = {checkpoint, *[p for p in checkpoints if p != checkpoint][-2:]}
+    for old in checkpoints:
+        if old not in retained:
+            old.unlink()
+
+
 def versioned_runner(base, output, spec):
     output = Path(output)
 
     class WorkshopPolicyRunner(base):
         def save(self, path, infos=None):
             super().save(path, infos)
+            retain_checkpoints(output, path)
             _, _, exported = self._get_export_paths(path)
             exported = Path(exported)
             if not exported.is_file():

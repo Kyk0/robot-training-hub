@@ -66,6 +66,49 @@ def test_frozen_runner_versions_native_exports_and_keeps_latest_ten(
     metadata = json.loads(files[-1].with_suffix(".json").read_text())
     assert metadata["iteration_index"] == 600 and metadata["policy_interval"] == 50
     assert metadata["sha256"] == hashlib.sha256(files[-1].read_bytes()).hexdigest()
+    assert sorted(p.name for p in tmp_path.glob("model_*.pt")) == [
+        "model_500.pt",
+        "model_550.pt",
+        "model_600.pt",
+    ]
+
+
+def test_checkpoint_retention_stays_inside_current_run(tmp_path):
+    from hub.policy_export import retain_checkpoints
+
+    output = tmp_path / "run"
+    output.mkdir()
+    for index in (0, 50, 100, 150):
+        (output / f"model_{index}.pt").write_bytes(b"checkpoint")
+    outside = tmp_path / "model_200.pt"
+    outside.write_bytes(b"other run checkpoint")
+    link = output / "model_200.pt"
+    link.symlink_to(outside)
+    named = output / "model_backup.pt"
+    named.write_bytes(b"manual backup")
+    retain_checkpoints(output, outside)
+    assert (output / "model_0.pt").exists()
+    retain_checkpoints(output, output / "model_150.pt")
+    assert not (output / "model_0.pt").exists()
+    assert all((output / f"model_{i}.pt").exists() for i in (50, 100, 150))
+    assert outside.read_bytes() == b"other run checkpoint"
+    assert named.read_bytes() == b"manual backup" and link.is_symlink()
+
+
+def test_failed_native_save_preserves_previous_checkpoints(tmp_path):
+    import pytest
+    from hub.policy_export import versioned_runner
+
+    class FailingRunner:
+        def save(self, path, infos=None):
+            raise OSError("disk write failed")
+
+    for index in (0, 50, 100, 150):
+        (tmp_path / f"model_{index}.pt").write_bytes(b"previous checkpoint")
+    runner = versioned_runner(FailingRunner, tmp_path, {})()
+    with pytest.raises(OSError, match="disk write failed"):
+        runner.save(str(tmp_path / "model_200.pt"))
+    assert len(list(tmp_path.glob("model_*.pt"))) == 4
 
 
 def test_policy_catalog_export_ownership_and_terminal_publication(setup, job):
