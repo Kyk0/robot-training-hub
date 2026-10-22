@@ -23,6 +23,14 @@ from .scheduler import minimum_free_mb
 log = logging.getLogger("worker")
 
 
+def signal_process_group(proc, sig):
+    # The child may finish between poll() and killpg(), especially on cancellation.
+    try:
+        os.killpg(proc.pid, sig)
+    except ProcessLookupError:
+        pass
+
+
 def publication_artifacts(output):
     """Include upstream ONNX exports alongside configuration and recent checkpoints."""
     output = Path(output).resolve()
@@ -271,8 +279,9 @@ class Worker:
                     vals = acc.Scalars(tag)
                     if vals:
                         v = vals[-1]
-                        step = max(step, v.step + 1)
-                        if "reward" in tag.lower() and "mean" in tag.lower():
+                        # RSL also logs /time charts whose steps are elapsed seconds.
+                        if tag == "Train/mean_reward":
+                            step = max(step, v.step + 1)
                             metrics["reward"] = v.value
                         elif "iteration" in tag.lower() and "time" in tag.lower():
                             metrics["iteration_seconds"] = v.value
@@ -296,6 +305,7 @@ class Worker:
         logseq = 0
         finished = False
         claimed = False
+        resource_error = None
         try:
             self.journal(
                 directory, {"state": "claiming", "lease": lease, "boot": self.boot}
@@ -432,12 +442,15 @@ class Worker:
                 last = 0
                 cancel_at = None
                 reader_done = False
-                resource_error = None
                 while proc.poll() is None or not reader_done:
                     if self.stop.is_set():
                         state["cancel"].set()
-                    if state["cancel"].is_set() and cancel_at is None:
-                        os.killpg(proc.pid, signal.SIGINT)
+                    if (
+                        state["cancel"].is_set()
+                        and cancel_at is None
+                        and proc.poll() is None
+                    ):
+                        signal_process_group(proc, signal.SIGINT)
                         cancel_at = time.monotonic()
                     if (
                         cancel_at
@@ -449,9 +462,9 @@ class Worker:
                             raise RuntimeError(
                                 "MPS client did not exit after SIGINT; administrator must terminate this client through MPS before reconciliation"
                             )
-                        os.killpg(proc.pid, signal.SIGTERM)
+                        signal_process_group(proc, signal.SIGTERM)
                         if time.monotonic() - cancel_at > 40:
-                            os.killpg(proc.pid, signal.SIGKILL)
+                            signal_process_group(proc, signal.SIGKILL)
                     try:
                         line = lines.get(timeout=0.2)
                         if line is None:
@@ -524,7 +537,9 @@ class Worker:
                         key,
                         {
                             "lease": lease,
-                            "iteration": iteration,
+                            "iteration": min(
+                                iteration, assignment["spec"]["iterations"]
+                            ),
                             "metrics": metrics,
                             "logs": pending[:120000],
                             "log_seq": logseq,
@@ -574,12 +589,14 @@ class Worker:
                         key,
                         {
                             "lease": lease,
-                            "status": "FAILED",
+                            "status": "CANCELED"
+                            if state["cancel"].is_set() and not resource_error
+                            else "FAILED",
                             "iteration": min(
                                 iteration, assignment["spec"]["iterations"]
                             ),
                             "execution": execution,
-                            "error": str(e)[:4000],
+                            "error": resource_error or str(e)[:4000],
                         },
                     )
                     finished = True
