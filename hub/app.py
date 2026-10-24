@@ -484,6 +484,13 @@ def create_app(cfg=None):
                     409,
                     "Workshop settings changed during preparation; please submit again",
                 )
+            if motion["artifact"].startswith("upload:") and not any(
+                m["id"] == motion["id"]
+                for m in visible_motions(c, u, approved_only=True)
+            ):
+                raise HTTPException(
+                    409, "This motion is no longer available; select another motion"
+                )
             c.execute(
                 "INSERT INTO jobs(id,user_id,name,status,spec,created,estimated_mb,snapshot) VALUES(?,?,?,'QUEUED',?,?,?,?)",
                 (
@@ -1336,7 +1343,9 @@ def create_app(cfg=None):
         return {"url": cfg.public_url + "/login#token=" + token, "expires_in": 900}
 
     def get_motion(c, key, u):
-        row = c.execute("SELECT * FROM motions WHERE id=?", (key,)).fetchone()
+        row = c.execute(
+            "SELECT * FROM motions WHERE id=? AND deleted_at IS NULL", (key,)
+        ).fetchone()
         if not row or not (
             u["role"] == "admin" or row["user_id"] == u["id"] or row["shared"]
         ):
@@ -1395,6 +1404,23 @@ def create_app(cfg=None):
                 "UPDATE motions SET approved=?,shared=? WHERE id=?",
                 (bool(body.get("approved", True)), bool(body.get("shared", True)), key),
             )
+        return {"ok": True}
+
+    @app.delete("/api/admin/motions/{key}")
+    def remove_motion(key: str, u=Depends(admin)):
+        with db.tx() as c:
+            row = c.execute("SELECT * FROM motions WHERE id=?", (key,)).fetchone()
+            if not row:
+                raise HTTPException(404, "Motion not found")
+            if row["deleted_at"] is None:
+                # Keep bytes for already-admitted jobs and immutable run provenance.
+                c.execute(
+                    "UPDATE motions SET deleted_at=?,approved=0,shared=0 WHERE id=?",
+                    (now(), key),
+                )
+                db.audit(
+                    c, u["id"], "remove-motion", {"motion": key, "label": row["label"]}
+                )
         return {"ok": True}
 
     @app.get("/api/robot/model")

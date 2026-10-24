@@ -213,7 +213,7 @@ def visible_motions(c, user, approved_only=False):
     return [
         public_motion(r)
         for r in c.execute(
-            "SELECT * FROM motions WHERE (? OR user_id=? OR shared=1) AND (?=0 OR approved=1) ORDER BY created DESC",
+            "SELECT * FROM motions WHERE deleted_at IS NULL AND (? OR user_id=? OR shared=1) AND (?=0 OR approved=1) ORDER BY created DESC",
             (user["role"] == "admin", user["id"], approved_only),
         )
     ]

@@ -867,15 +867,21 @@ function Runs({ admin = false }: { admin?: boolean }) {
 
 function Motions() {
   const { user } = useContext(Auth);
-  const { data: motions, error } = usePoll<any[]>(() => api("/motions"));
+  const [revision, setRevision] = useState(0);
+  const { data: motions, error } = usePoll<any[]>(
+    () => api("/motions"),
+    [revision],
+  );
+  const [removing, setRemoving] = useState<any>();
   const [file, setFile] = useState<File>(),
     [label, setLabel] = useState(""),
     [fps, setFps] = useState(50),
     [selected, setSelected] = useState("");
   const action = useAction();
   useEffect(() => {
-    if (motions?.length && !selected) setSelected(motions[0].id);
-  }, [motions]);
+    if (motions && !motions.some((m) => m.id === selected))
+      setSelected(motions[0]?.id || "");
+  }, [motions, selected]);
   const motion = motions?.find((m) => m.id === selected);
   return (
     <>
@@ -979,6 +985,15 @@ function Motions() {
                   <p>Booster K1 reference motion</p>
                 </div>
                 <div className="actions">
+                  {user?.role === "admin" && (
+                    <Button
+                      variant="danger"
+                      disabled={action.busy}
+                      onClick={() => setRemoving(motion)}
+                    >
+                      Remove motion
+                    </Button>
+                  )}
                   <a
                     className="button secondary"
                     href={"/api/motions/" + motion.id + "/download"}
@@ -1019,6 +1034,61 @@ function Motions() {
           )}
         </div>
       </div>
+      {removing && (
+        <div className="modal-backdrop">
+          <section
+            className="modal compact"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="remove-motion-title"
+          >
+            <div className="section-title">
+              <h2 id="remove-motion-title">Remove motion</h2>
+              <button
+                disabled={action.busy}
+                onClick={() => setRemoving(undefined)}
+                aria-label="Close remove motion dialog"
+              >
+                <X />
+              </button>
+            </div>
+            <div className="modal-content">
+              <p>
+                Remove <strong>{removing.label}</strong> from the motion
+                library?
+              </p>
+              <p>
+                It will no longer be available for new training. Existing queued
+                and running jobs, saved results, and source snapshots are
+                preserved.
+              </p>
+              <ErrorBox error={action.error} />
+            </div>
+            <div className="modal-footer">
+              <Button
+                variant="secondary"
+                disabled={action.busy}
+                onClick={() => setRemoving(undefined)}
+              >
+                Keep motion
+              </Button>
+              <Button
+                variant="danger"
+                disabled={action.busy}
+                onClick={() =>
+                  action.run(async () => {
+                    await api("/admin/motions/" + removing.id, "DELETE");
+                    setRemoving(undefined);
+                    setRevision((previous) => previous + 1);
+                  }, "Motion removed")
+                }
+              >
+                {action.busy ? "Removing…" : "Remove motion"}
+              </Button>
+            </div>
+          </section>
+        </div>
+      )}
     </>
   );
 }

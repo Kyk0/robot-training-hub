@@ -60,7 +60,8 @@ CREATE TABLE IF NOT EXISTS artifacts (
 CREATE TABLE IF NOT EXISTS motions (
  id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id),label TEXT NOT NULL,
  filename TEXT NOT NULL,fps REAL NOT NULL,frames INTEGER NOT NULL,duration REAL NOT NULL,
- sha256 TEXT NOT NULL,approved INTEGER NOT NULL DEFAULT 0,shared INTEGER NOT NULL DEFAULT 0,created REAL NOT NULL);
+ sha256 TEXT NOT NULL,approved INTEGER NOT NULL DEFAULT 0,shared INTEGER NOT NULL DEFAULT 0,created REAL NOT NULL,
+ deleted_at REAL);
 CREATE TABLE IF NOT EXISTS audit (
  id INTEGER PRIMARY KEY, at REAL NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY, at REAL NOT NULL, count INTEGER NOT NULL);
@@ -92,6 +93,9 @@ class DB:
                 c.execute("ALTER TABLE users ADD COLUMN deleted_at REAL")
             if "credential_email_at" not in columns:
                 c.execute("ALTER TABLE users ADD COLUMN credential_email_at REAL")
+            motion_columns = {row[1] for row in c.execute("PRAGMA table_info(motions)")}
+            if "deleted_at" not in motion_columns:
+                c.execute("ALTER TABLE motions ADD COLUMN deleted_at REAL")
             current = (
                 unpack(c.execute("SELECT value FROM settings WHERE id=1").fetchone()[0])
                 if c.execute("SELECT 1 FROM settings WHERE id=1").fetchone()
