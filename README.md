@@ -2,17 +2,11 @@
 
 A runnable React + TypeScript / FastAPI workshop platform for Booster K1 motion-tracking RL. SQLite owns the durable queue; outbound Python workers discover GPUs and execute frozen source snapshots using each host's existing Booster mjlab environment. No SSH access is given to participants.
 
-## Current workshop deployment
+## Deployment
 
-Open **https://hub.example.edu/login**, or use the entry page **https://hub.example.edu/**. The backend runs on the Coordinator host, and all three real workers connect directly. The Mac can be offline.
+This public source uses example hostnames, usernames and addresses. Configure your own coordinator and worker hosts before using the deployment scripts; `hub.example.edu` is a placeholder. Private workshop host audits and participant operations records are omitted.
 
-Sign in as **admin@example.edu** with the password saved privately in `data/workshop/admin-credentials.txt`. Add participant emails and their limits in Admin → Participants, then generate/copy or email account passwords. Configure a sender in Admin → Settings → Email delivery. See [account and email setup](docs/EMAIL.md). An SMTP account is still needed for real delivery.
-
-Environment choices are **1024 / 2048 / 4096**, default **2048**, with an **80% GPU memory ceiling**, **10 running jobs total**, and the stricter H100 memory reserve. Existing workstation sites are preserved. MPS remains off.
-
-Policies are listed under **Policies**; new runs export every **50 learning iterations** by default and retain ten versions. **Export policy** downloads the ONNX and configuration bundle. See [policy exports](docs/POLICIES.md).
-
-See [deployment status and operations](docs/CURRENT_STATUS.md), [real workshop guide](docs/REAL_WORKSHOP.md), and [validation](docs/VALIDATION.md). Private source: [Kyk0/robot-training-hub](https://github.com/Kyk0/robot-training-hub). The Mac data directory is an archive; the live database is on the workstation. The historical local/demo setup below remains available for isolated testing.
+Each worker executes training on its own GPU server. The coordinator manages accounts, queues, resource limits and policy exports. See `deploy/` for service and environment examples and `docs/POLICIES.md` for policy exports.
 
 ## Quick local demonstration
 

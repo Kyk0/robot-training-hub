@@ -37,7 +37,7 @@ git commit -m "Describe the behavior changed"
 
 Before workshop deployment, finish or reconcile active jobs, rebuild the frontend, commit the reviewed changes, and run `./scripts/copy-workers.sh` to refresh the three deployment copies. That script deploys files and leaves runtime data on its host. It does not automatically merge Git histories. Once a shared remote exists, update server repositories with `git pull --ff-only` and rebuild/install as needed instead of editing deployed files independently.
 
-The active private remote is `https://github.com/Kyk0/robot-training-hub`. Its Pages workflow publishes only `public-site/`. For a separate installation, attach a repository you own:
+The public remote is `https://github.com/Kyk0/robot-training-hub`. Its Pages workflow publishes only `public-site/`. For a separate installation, attach a repository you own:
 
 ```bash
 git remote add origin <your-repository-url>
